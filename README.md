@@ -22,6 +22,28 @@ PulseAudio or PipeWire. To choose a specific source, set
 TRANSLATOR_AUDIO_SOURCE=alsa_output.pci-0000_00_1f.3.analog-stereo.monitor ./scripts/run.sh
 ```
 
+The app uses WebRTC VAD to mark speech after sustained voice activity and
+returns to silence after a quiet gap. Continuous speech is split at
+`TRANSLATOR_SPEECH_MAX_MS` with `TRANSLATOR_SPEECH_OVERLAP_MS` carried into the
+next chunk for context.
+
+To write completed speech chunks as WAV files for debugging, set:
+
+```bash
+TRANSLATOR_DEBUG_AUDIO_DIR=debug/audio ./scripts/run.sh
+```
+
+If segmentation is too eager or too strict, tune the VAD aggressiveness:
+
+```bash
+TRANSLATOR_VAD_AGGRESSIVENESS=3 ./scripts/run.sh
+```
+
+`0` is least aggressive and `3` is most aggressive.
+
+Debug files include the segment end reason, for example:
+`segment-0001-silence.wav` or `segment-0002-max-duration.wav`.
+
 ## Check
 
 ```bash

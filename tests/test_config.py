@@ -13,3 +13,11 @@ def test_default_settings_are_valid() -> None:
     assert settings.audio_sample_rate == 16_000
     assert settings.audio_chunk_frames == 1_600
     assert settings.audio_detection_threshold == 0.01
+    assert settings.speech_start_ms == 300
+    assert settings.speech_end_ms == 800
+    assert settings.speech_max_ms == 10_000
+    assert settings.speech_overlap_ms == 1_000
+    assert settings.vad_aggressiveness == 2
+    assert settings.vad_frame_ms == 30
+    assert settings.vad_speech_ratio == 0.5
+    assert settings.debug_audio_dir is None
