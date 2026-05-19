@@ -1,0 +1,42 @@
+[project]
+name = "translator"
+version = "0.1.0"
+description = "A Linux desktop subtitle and live translation shell."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+]
+
+[project.scripts]
+translator-shell = "translator.app:main"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.380",
+    "pytest>=8.2",
+    "ruff>=0.6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
