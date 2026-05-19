@@ -11,7 +11,15 @@ A small Linux desktop shell for live subtitles and translation.
 ## Run
 
 ```bash
-uv run translator-shell
+./scripts/run.sh
+```
+
+The app uses `pactl` and `parec` to listen to the default sink monitor on
+PulseAudio or PipeWire. To choose a specific source, set
+`TRANSLATOR_AUDIO_SOURCE` before running:
+
+```bash
+TRANSLATOR_AUDIO_SOURCE=alsa_output.pci-0000_00_1f.3.analog-stereo.monitor ./scripts/run.sh
 ```
 
 ## Check
@@ -21,6 +29,9 @@ uv run translator-shell
 ./scripts/lint.sh
 ./scripts/typecheck.sh
 ```
+
+The test script prints terminal coverage and writes an HTML report to
+`htmlcov/index.html`.
 
 ## Git Hooks
 

@@ -1,14 +1,22 @@
 from collections.abc import Callable
+from queue import SimpleQueue
 from tkinter import BOTH, Tk
 from tkinter.ttk import Frame, Label, Style
 from typing import Any
 
+from translator.audio import AudioActivityMonitor, AudioStatus, PulseAudioActivityMonitor
 from translator.config import AppSettings
 
 
 class SubtitleWindow:
-    def __init__(self, settings: AppSettings) -> None:
+    def __init__(
+        self,
+        settings: AppSettings,
+        audio_monitor: AudioActivityMonitor | None = None,
+    ) -> None:
         self._settings = settings
+        self._audio_monitor = audio_monitor or PulseAudioActivityMonitor(settings)
+        self._status_queue: SimpleQueue[AudioStatus] = SimpleQueue()
         self._root_factory: Callable[[], Any] = Tk
 
     def run(self) -> None:
@@ -41,7 +49,24 @@ class SubtitleWindow:
         )
         label.pack(fill=BOTH, expand=True)
 
+        root.protocol("WM_DELETE_WINDOW", lambda: self._close(root))
+        root.after(100, lambda: self._poll_status(root, label))
+        self._audio_monitor.start(self._status_queue.put)
         root.mainloop()
+
+    def _poll_status(self, root: Any, label: Any) -> None:
+        latest_status: AudioStatus | None = None
+        while not self._status_queue.empty():
+            latest_status = self._status_queue.get()
+
+        if latest_status is not None:
+            label.configure(text=latest_status.value)
+
+        root.after(100, lambda: self._poll_status(root, label))
+
+    def _close(self, root: Any) -> None:
+        self._audio_monitor.stop()
+        root.destroy()
 
 
 def main() -> None:

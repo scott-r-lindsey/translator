@@ -16,6 +16,7 @@ translator-shell = "translator.app:main"
 dev = [
     "pyright>=1.1.380",
     "pytest>=8.2",
+    "pytest-cov>=7.1.0",
     "ruff>=0.6.0",
 ]
 

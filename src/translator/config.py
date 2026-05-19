@@ -13,3 +13,7 @@ class AppSettings(BaseSettings):
     height: int = Field(default=160, ge=100, le=1080)
     opacity: float = Field(default=0.9, ge=0.2, le=1.0)
     always_on_top: bool = True
+    audio_source: str | None = None
+    audio_sample_rate: int = Field(default=16_000, ge=8_000, le=48_000)
+    audio_chunk_frames: int = Field(default=1_600, ge=400, le=8_000)
+    audio_detection_threshold: float = Field(default=0.01, ge=0.0, le=1.0)
