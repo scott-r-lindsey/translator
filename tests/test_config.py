@@ -1,3 +1,7 @@
+from pathlib import Path
+
+from pytest import MonkeyPatch
+
 from translator.config import AppSettings
 
 
@@ -21,3 +25,12 @@ def test_default_settings_are_valid() -> None:
     assert settings.vad_frame_ms == 30
     assert settings.vad_speech_ratio == 0.5
     assert settings.debug_audio_dir is None
+
+
+def test_settings_read_dotenv_file(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("TRANSLATOR_WIDTH=800\n", encoding="utf-8")
+
+    settings = AppSettings()
+
+    assert settings.width == 800

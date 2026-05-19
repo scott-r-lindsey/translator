@@ -333,6 +333,7 @@ source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "python-dotenv" },
     { name = "webrtcvad-wheels" },
 ]
 
@@ -348,6 +349,7 @@ dev = [
 requires-dist = [
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.2" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "webrtcvad-wheels", specifier = ">=2.0.14" },
 ]
 

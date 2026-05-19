@@ -5,7 +5,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class AppSettings(BaseSettings):
     """Runtime settings for the subtitle shell."""
 
-    model_config = SettingsConfigDict(env_prefix="TRANSLATOR_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_prefix="TRANSLATOR_",
+        extra="ignore",
+    )
 
     window_title: str = "Live Subtitles"
     placeholder_text: str = "Waiting for audio..."

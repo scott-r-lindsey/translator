@@ -6,6 +6,7 @@ A small Linux desktop shell for live subtitles and translation.
 
 ```bash
 ./scripts/setup.sh
+cp .env.dist .env
 ```
 
 ## Run
