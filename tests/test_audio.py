@@ -101,6 +101,7 @@ def test_speech_segmenter_finishes_after_sustained_silence() -> None:
 
     assert segment is not None
     assert segment.end_reason is SegmentEndReason.SILENCE
+    assert segment.duration_ms == 500
     assert len(segment.pcm) == len(audio_chunk()) * 5
     assert segmenter.is_speech_active is False
 
@@ -114,6 +115,7 @@ def test_speech_segmenter_finishes_at_max_segment_length() -> None:
 
     assert segment is not None
     assert segment.end_reason is SegmentEndReason.MAX_DURATION
+    assert segment.duration_ms == 1_000
     assert len(segment.pcm) == len(audio_chunk()) * 10
     assert segmenter.is_speech_active is True
 
@@ -132,6 +134,7 @@ def test_speech_segmenter_includes_overlap_after_max_segment_length() -> None:
 
     assert second_segment is not None
     assert second_segment.end_reason is SegmentEndReason.MAX_DURATION
+    assert second_segment.duration_ms == 1_000
     assert len(second_segment.pcm) == len(audio_chunk()) * 10
 
 

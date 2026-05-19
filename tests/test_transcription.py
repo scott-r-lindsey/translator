@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pytest import MonkeyPatch
 
 from translator.audio import SegmentEndReason
@@ -8,6 +10,7 @@ from translator.transcription import (
     Transcription,
     TranscriptionWorker,
     pcm_s16le_to_float32,
+    write_debug_transcript,
 )
 
 
@@ -39,7 +42,7 @@ class FakeWhisperModel:
 class FakeTranscriber:
     def transcribe(self, segment: SpeechSegment) -> Transcription:
         assert segment.sample_rate == 16_000
-        return Transcription(text="done")
+        return Transcription(text="done", language="en", latency_ms=250.0)
 
 
 class FailingTranscriber:
@@ -81,7 +84,9 @@ def test_faster_whisper_transcriber_uses_configured_model(monkeypatch: MonkeyPat
     transcription = transcriber.transcribe(speech_segment())
 
     assert calls == [("large-v3", "cuda", 1, "float16")]
-    assert transcription == Transcription(text="hello world", language="en")
+    assert transcription.text == "hello world"
+    assert transcription.language == "en"
+    assert transcription.latency_ms > 0
 
 
 def test_transcription_worker_emits_status_and_text() -> None:
@@ -92,7 +97,7 @@ def test_transcription_worker_emits_status_and_text() -> None:
     worker.submit(speech_segment())
     worker.stop()
 
-    assert emitted == ["Transcribing...", "done"]
+    assert emitted == ["Transcribing 0.1s...", "done"]
 
 
 def test_transcription_worker_emits_failure_details() -> None:
@@ -103,7 +108,28 @@ def test_transcription_worker_emits_failure_details() -> None:
     worker.submit(speech_segment())
     worker.stop()
 
-    assert emitted == ["Transcribing...", "Transcription unavailable: no cuda"]
+    assert emitted == ["Transcribing 0.1s...", "Transcription unavailable: no cuda"]
+
+
+def test_transcription_worker_writes_debug_transcript(tmp_path: Path) -> None:
+    emitted: list[str] = []
+    transcript_path = tmp_path / "transcript.txt"
+    worker = TranscriptionWorker(FakeTranscriber(), str(transcript_path))
+
+    worker.start(emitted.append)
+    worker.submit(speech_segment())
+    worker.stop()
+
+    contents = transcript_path.read_text(encoding="utf-8")
+    assert "duration=0.1s" in contents
+    assert "reason=silence" in contents
+    assert "language=en" in contents
+    assert "latency=0.25s" in contents
+    assert "done" in contents
+
+
+def test_write_debug_transcript_ignores_missing_path() -> None:
+    write_debug_transcript(None, speech_segment(), Transcription(text="ignored"))
 
 
 def speech_segment() -> SpeechSegment:
@@ -111,4 +137,5 @@ def speech_segment() -> SpeechSegment:
         pcm=b"\x00\x00" * 1600,
         sample_rate=16_000,
         end_reason=SegmentEndReason.SILENCE,
+        duration_ms=100.0,
     )

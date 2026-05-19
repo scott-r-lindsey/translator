@@ -13,6 +13,7 @@ class SpeechSegment:
     pcm: bytes
     sample_rate: int
     end_reason: SegmentEndReason
+    duration_ms: float
 
 
 class SpeechSegmenter:
@@ -81,6 +82,7 @@ class SpeechSegmenter:
             pcm=b"".join(self._segment_chunks),
             sample_rate=self._settings.audio_sample_rate,
             end_reason=end_reason,
+            duration_ms=self._segment_ms,
         )
         self._write_debug_segment(segment)
 

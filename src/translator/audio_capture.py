@@ -23,7 +23,10 @@ class PulseAudioActivityMonitor:
         self._segmenter = SpeechSegmenter(settings)
         self._voice_detector = voice_detector or WebRtcVoiceDetector(settings)
         self._transcription_worker = (
-            TranscriptionWorker(transcriber or FasterWhisperTranscriber(settings))
+            TranscriptionWorker(
+                transcriber or FasterWhisperTranscriber(settings),
+                settings.debug_transcript_path,
+            )
             if settings.transcription_enabled
             else None
         )

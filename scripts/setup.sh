@@ -13,7 +13,13 @@ EOF
   exit 1
 fi
 
+if [ ! -f .env ] && [ -f .env.dist ]; then
+  cp .env.dist .env
+  printf '%s\n' "Created .env from .env.dist"
+fi
+
 uv sync --dev
+./scripts/download-models.sh
 git config core.hooksPath .githooks
 
-printf '%s\n' "Dependencies installed and Git hooks enabled from .githooks"
+printf '%s\n' "Dependencies installed, models available, and Git hooks enabled from .githooks"

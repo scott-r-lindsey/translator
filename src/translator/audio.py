@@ -14,6 +14,7 @@ from translator.transcription import (
     Transcription,
     TranscriptionWorker,
     pcm_s16le_to_float32,
+    write_debug_transcript,
 )
 from translator.voice_activity import (
     WebRtcVoiceDetector,
@@ -40,4 +41,5 @@ __all__ = [
     "rms_s16le",
     "split_vad_frames",
     "validate_vad_settings",
+    "write_debug_transcript",
 ]

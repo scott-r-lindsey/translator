@@ -9,4 +9,4 @@ if [ -f .env ]; then
   set +a
 fi
 
-uv run translator-shell "$@"
+uv run python -m translator.model_cache

@@ -6,7 +6,17 @@ A small Linux desktop shell for live subtitles and translation.
 
 ```bash
 ./scripts/setup.sh
-cp .env.dist .env
+```
+
+Downloaded Hugging Face models are stored under `.models/huggingface` when
+running with the provided env files. The `.models/` directory is ignored by git.
+Setup creates `.env` from `.env.dist` if it does not exist, installs
+dependencies, and blocks until configured models are downloaded and loadable.
+
+After changing model settings, pre-download them again with:
+
+```bash
+./scripts/download-models.sh
 ```
 
 ## Run
@@ -44,6 +54,12 @@ TRANSLATOR_VAD_AGGRESSIVENESS=3 ./scripts/run.sh
 
 Debug files include the segment end reason, for example:
 `segment-0001-silence.wav` or `segment-0002-max-duration.wav`.
+
+To append transcript timing and language metadata, set:
+
+```bash
+TRANSLATOR_DEBUG_TRANSCRIPT_PATH=debug/transcript.txt ./scripts/run.sh
+```
 
 Completed speech chunks are transcribed with faster-whisper. The default model
 is `large-v3` on CUDA with `int8_float16` compute. The first run downloads the

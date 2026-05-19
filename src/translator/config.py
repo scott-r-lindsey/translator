@@ -32,6 +32,7 @@ class AppSettings(BaseSettings):
     vad_frame_ms: int = Field(default=30, ge=10, le=30)
     vad_speech_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
     debug_audio_dir: str | None = None
+    debug_transcript_path: str | None = None
     transcription_enabled: bool = True
     whisper_model: str = "large-v3"
     whisper_device: str = "cuda"
@@ -41,7 +42,13 @@ class AppSettings(BaseSettings):
     whisper_task: str = "transcribe"
     whisper_beam_size: int = Field(default=5, ge=1, le=10)
 
-    @field_validator("audio_source", "debug_audio_dir", "whisper_language", mode="before")
+    @field_validator(
+        "audio_source",
+        "debug_audio_dir",
+        "debug_transcript_path",
+        "whisper_language",
+        mode="before",
+    )
     @classmethod
     def empty_string_as_none(cls, value: Any) -> Any:
         if value == "":

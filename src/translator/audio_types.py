@@ -9,7 +9,7 @@ class AudioStatus(StrEnum):
     SILENCE = "Silence"
     AUDIO_DETECTED = "Audio detected"
     SPEECH_DETECTED = "Speech detected"
-    TRANSCRIBING = "Transcribing..."
+    TRANSCRIBING = "Transcribing"
     TRANSCRIPTION_UNAVAILABLE = "Transcription unavailable"
 
 
