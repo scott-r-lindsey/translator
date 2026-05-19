@@ -5,6 +5,8 @@ description = "A Linux desktop subtitle and live translation shell."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "faster-whisper>=1.2.1",
+    "numpy>=2.4.6",
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
     "python-dotenv>=1.2.2",

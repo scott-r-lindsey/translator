@@ -16,7 +16,8 @@ class SubtitleWindow:
     ) -> None:
         self._settings = settings
         self._audio_monitor = audio_monitor or PulseAudioActivityMonitor(settings)
-        self._status_queue: SimpleQueue[AudioStatus] = SimpleQueue()
+        self._status_queue: SimpleQueue[str] = SimpleQueue()
+        self._showing_transcript = False
         self._root_factory: Callable[[], Any] = Tk
 
     def run(self) -> None:
@@ -55,14 +56,22 @@ class SubtitleWindow:
         root.mainloop()
 
     def _poll_status(self, root: Any, label: Any) -> None:
-        latest_status: AudioStatus | None = None
+        latest_status: str | None = None
         while not self._status_queue.empty():
-            latest_status = self._status_queue.get()
+            message = self._status_queue.get()
+            latest_status = self._next_display_message(message, latest_status)
 
         if latest_status is not None:
-            label.configure(text=latest_status.value)
+            label.configure(text=latest_status)
 
         root.after(100, lambda: self._poll_status(root, label))
+
+    def _next_display_message(self, message: str, current: str | None) -> str | None:
+        if message in PASSIVE_STATUS_MESSAGES and self._showing_transcript:
+            return current
+
+        self._showing_transcript = message not in STATUS_MESSAGES
+        return message
 
     def _close(self, root: Any) -> None:
         self._audio_monitor.stop()
@@ -75,3 +84,11 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+STATUS_MESSAGES = {status.value for status in AudioStatus}
+PASSIVE_STATUS_MESSAGES = {
+    AudioStatus.LISTENING.value,
+    AudioStatus.SILENCE.value,
+    AudioStatus.AUDIO_DETECTED.value,
+}

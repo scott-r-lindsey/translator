@@ -9,6 +9,8 @@ class AudioStatus(StrEnum):
     SILENCE = "Silence"
     AUDIO_DETECTED = "Audio detected"
     SPEECH_DETECTED = "Speech detected"
+    TRANSCRIBING = "Transcribing..."
+    TRANSCRIPTION_UNAVAILABLE = "Transcription unavailable"
 
 
 class SegmentEndReason(StrEnum):
@@ -16,7 +18,7 @@ class SegmentEndReason(StrEnum):
     MAX_DURATION = "max-duration"
 
 
-StatusCallback = Callable[[AudioStatus], None]
+StatusCallback = Callable[[str], None]
 
 
 class AudioActivityMonitor(Protocol):

@@ -8,6 +8,7 @@ from translator.audio_types import AudioStatus, StatusCallback, VoiceActivityDet
 from translator.config import AppSettings
 from translator.pcm import rms_s16le
 from translator.speech_segments import SpeechSegmenter
+from translator.transcription import FasterWhisperTranscriber, Transcriber, TranscriptionWorker
 from translator.voice_activity import WebRtcVoiceDetector
 
 
@@ -16,10 +17,16 @@ class PulseAudioActivityMonitor:
         self,
         settings: AppSettings,
         voice_detector: VoiceActivityDetector | None = None,
+        transcriber: Transcriber | None = None,
     ) -> None:
         self._settings = settings
         self._segmenter = SpeechSegmenter(settings)
         self._voice_detector = voice_detector or WebRtcVoiceDetector(settings)
+        self._transcription_worker = (
+            TranscriptionWorker(transcriber or FasterWhisperTranscriber(settings))
+            if settings.transcription_enabled
+            else None
+        )
         self._process: subprocess.Popen[bytes] | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -39,6 +46,9 @@ class PulseAudioActivityMonitor:
 
     def stop(self) -> None:
         self._stop_event.set()
+        if self._transcription_worker is not None:
+            self._transcription_worker.stop()
+
         if self._process is not None:
             self._process.terminate()
             try:
@@ -51,6 +61,9 @@ class PulseAudioActivityMonitor:
             self._thread.join(timeout=1)
 
     def _run(self, on_status: StatusCallback) -> None:
+        if self._transcription_worker is not None:
+            self._transcription_worker.start(on_status)
+
         command = build_capture_command(self._settings)
         if command is None:
             on_status(AudioStatus.CAPTURE_UNAVAILABLE)
@@ -82,7 +95,9 @@ class PulseAudioActivityMonitor:
             level = rms_s16le(chunk)
             is_audio_detected = level >= self._settings.audio_detection_threshold
             is_speech_detected = is_audio_detected and self._voice_detector.is_speech(chunk)
-            self._segmenter.process(chunk, is_speech_detected)
+            segment = self._segmenter.process(chunk, is_speech_detected)
+            if segment is not None and self._transcription_worker is not None:
+                self._transcription_worker.submit(segment)
 
             if self._segmenter.is_speech_active:
                 status = AudioStatus.SPEECH_DETECTED
@@ -91,7 +106,7 @@ class PulseAudioActivityMonitor:
             else:
                 status = AudioStatus.SILENCE
 
-            on_status(status)
+            on_status(status.value)
 
 
 def build_capture_command(settings: AppSettings) -> list[str] | None:

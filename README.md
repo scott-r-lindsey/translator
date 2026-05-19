@@ -45,6 +45,28 @@ TRANSLATOR_VAD_AGGRESSIVENESS=3 ./scripts/run.sh
 Debug files include the segment end reason, for example:
 `segment-0001-silence.wav` or `segment-0002-max-duration.wav`.
 
+Completed speech chunks are transcribed with faster-whisper. The default model
+is `large-v3` on CUDA with `int8_float16` compute. The first run downloads the
+model.
+
+To choose a specific NVIDIA GPU, set the CUDA device index:
+
+```bash
+TRANSLATOR_WHISPER_DEVICE_INDEX=1 ./scripts/run.sh
+```
+
+Useful transcription settings:
+
+```bash
+TRANSLATOR_WHISPER_MODEL=large-v3
+TRANSLATOR_WHISPER_DEVICE=cuda
+TRANSLATOR_WHISPER_DEVICE_INDEX=0
+TRANSLATOR_WHISPER_COMPUTE_TYPE=int8_float16
+TRANSLATOR_WHISPER_LANGUAGE=
+```
+
+Leave `TRANSLATOR_WHISPER_LANGUAGE` empty for automatic language detection.
+
 ## Check
 
 ```bash

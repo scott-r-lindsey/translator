@@ -81,6 +81,28 @@ def test_subtitle_window_updates_label_from_audio_status(monkeypatch: MonkeyPatc
     assert label.configured_text == "Audio detected"
 
 
+def test_subtitle_window_keeps_transcript_through_passive_status(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    label = FakeWidget()
+    monitor = FakeAudioMonitor()
+    window = SubtitleWindow(AppSettings(), monitor)
+
+    monkeypatch.setattr("translator.app.Frame", build_fake_widget)
+    monkeypatch.setattr("translator.app.Label", build_label_factory(label))
+    monkeypatch.setattr("translator.app.Style", build_fake_style)
+    monkeypatch.setattr(window, "_root_factory", lambda: root)
+
+    window.run()
+    monitor.emit_text("hello world")
+    monitor.emit(AudioStatus.SILENCE)
+
+    callback = root.after_values[0][1]
+    assert callable(callback)
+    callback()
+
+    assert label.configured_text == "hello world"
+
+
 class FakeAudioMonitor:
     def __init__(self) -> None:
         self.started = False
@@ -98,7 +120,13 @@ class FakeAudioMonitor:
         if self._callback is None:
             raise AssertionError("Monitor was not started")
 
-        self._callback(status)
+        self._callback(status.value)
+
+    def emit_text(self, text: str) -> None:
+        if self._callback is None:
+            raise AssertionError("Monitor was not started")
+
+        self._callback(text)
 
 
 class FakeStyle:

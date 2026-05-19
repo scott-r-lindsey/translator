@@ -1,4 +1,6 @@
-from pydantic import Field
+from typing import Any
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,3 +32,19 @@ class AppSettings(BaseSettings):
     vad_frame_ms: int = Field(default=30, ge=10, le=30)
     vad_speech_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
     debug_audio_dir: str | None = None
+    transcription_enabled: bool = True
+    whisper_model: str = "large-v3"
+    whisper_device: str = "cuda"
+    whisper_device_index: int = Field(default=0, ge=0)
+    whisper_compute_type: str = "int8_float16"
+    whisper_language: str | None = None
+    whisper_task: str = "transcribe"
+    whisper_beam_size: int = Field(default=5, ge=1, le=10)
+
+    @field_validator("audio_source", "debug_audio_dir", "whisper_language", mode="before")
+    @classmethod
+    def empty_string_as_none(cls, value: Any) -> Any:
+        if value == "":
+            return None
+
+        return value
