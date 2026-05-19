@@ -13,9 +13,11 @@ from translator.transcription import (
     Transcriber,
     Transcription,
     TranscriptionWorker,
+    build_transcription_worker,
     pcm_s16le_to_float32,
     write_debug_transcript,
 )
+from translator.translation import NllbTranslator, NoOpTranslator, Translation, Translator
 from translator.voice_activity import (
     WebRtcVoiceDetector,
     split_vad_frames,
@@ -34,6 +36,11 @@ __all__ = [
     "Transcriber",
     "Transcription",
     "TranscriptionWorker",
+    "Translation",
+    "Translator",
+    "NllbTranslator",
+    "NoOpTranslator",
+    "build_transcription_worker",
     "VoiceActivityDetector",
     "WebRtcVoiceDetector",
     "build_capture_command",

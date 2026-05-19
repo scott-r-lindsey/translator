@@ -16,6 +16,12 @@ from numpy.typing import NDArray
 from translator.audio_types import AudioStatus, StatusCallback
 from translator.config import AppSettings
 from translator.speech_segments import SpeechSegment
+from translator.translation import (
+    NllbTranslator,
+    Translation,
+    Translator,
+    render_translation,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +35,11 @@ class Transcription:
 
 class Transcriber(Protocol):
     def transcribe(self, segment: SpeechSegment) -> Transcription:
+        ...
+
+
+class Preloadable(Protocol):
+    def prepare(self) -> None:
         ...
 
 
@@ -87,6 +98,9 @@ class FasterWhisperTranscriber:
         latency_ms = (time.perf_counter() - started_at) * 1_000
         return Transcription(text=text, language=info.language, latency_ms=latency_ms)
 
+    def prepare(self) -> None:
+        self._load_model()
+
     def _load_model(self) -> WhisperModelProtocol:
         if self._model is None:
             LOGGER.info(
@@ -111,9 +125,13 @@ class TranscriptionWorker:
         self,
         transcriber: Transcriber,
         debug_transcript_path: str | None = None,
+        translator: Translator | None = None,
+        translation_display_mode: str = "original",
     ) -> None:
         self._transcriber = transcriber
         self._debug_transcript_path = debug_transcript_path
+        self._translator = translator
+        self._translation_display_mode = translation_display_mode
         self._queue: Queue[SpeechSegment | None] = Queue()
         self._thread: threading.Thread | None = None
         self._callback: StatusCallback | None = None
@@ -123,6 +141,7 @@ class TranscriptionWorker:
             return
 
         self._callback = on_status
+        self._prepare_models()
         self._thread = threading.Thread(
             target=self._run,
             name="transcription-worker",
@@ -154,22 +173,63 @@ class TranscriptionWorker:
                 self._emit(f"{AudioStatus.TRANSCRIPTION_UNAVAILABLE.value}: {error}")
                 continue
 
+            translation = self._translate(transcription)
             LOGGER.info(
                 "Transcribed segment duration_ms=%.0f end_reason=%s language=%s "
-                "latency_ms=%.0f text_length=%s",
+                "latency_ms=%.0f text_length=%s translation_latency_ms=%s",
                 segment.duration_ms,
                 segment.end_reason,
                 transcription.language,
                 transcription.latency_ms,
                 len(transcription.text),
+                f"{translation.latency_ms:.0f}" if translation is not None else "none",
             )
-            write_debug_transcript(self._debug_transcript_path, segment, transcription)
+            write_debug_transcript(
+                self._debug_transcript_path,
+                segment,
+                transcription,
+                translation,
+            )
             if transcription.text:
-                self._emit(transcription.text)
+                self._emit(
+                    render_translation(
+                        transcription,
+                        translation,
+                        self._translation_display_mode,
+                    )
+                )
 
     def _emit(self, text: str) -> None:
         if self._callback is not None:
             self._callback(text)
+
+    def _prepare_models(self) -> None:
+        self._prepare_model("Loading Whisper model...", self._transcriber)
+        if self._translator is not None:
+            self._prepare_model("Loading translation model...", self._translator)
+
+    def _prepare_model(self, message: str, model: object) -> None:
+        if not hasattr(model, "prepare"):
+            return
+
+        self._emit(message)
+        cast(Preloadable, model).prepare()
+
+    def _translate(self, transcription: Transcription) -> Translation | None:
+        if self._translator is None:
+            return None
+
+        return self._translator.translate(transcription)
+
+
+def build_transcription_worker(settings: AppSettings) -> TranscriptionWorker:
+    translator = NllbTranslator(settings) if settings.translation_enabled else None
+    return TranscriptionWorker(
+        FasterWhisperTranscriber(settings),
+        settings.debug_transcript_path,
+        translator,
+        settings.translation_display_mode,
+    )
 
 
 def build_whisper_model(
@@ -189,10 +249,29 @@ def build_whisper_model(
     )
 
 
+def verify_whisper_model(settings: AppSettings) -> None:
+    model = build_whisper_model(
+        settings.whisper_model,
+        device=settings.whisper_device,
+        device_index=settings.whisper_device_index,
+        compute_type=settings.whisper_compute_type,
+    )
+    silence = np.zeros(settings.audio_sample_rate, dtype=np.float32)
+    segments, _info = model.transcribe(
+        silence,
+        language=settings.whisper_language,
+        task=settings.whisper_task,
+        beam_size=1,
+    )
+    for _segment in iter_whisper_segments(segments):
+        break
+
+
 def write_debug_transcript(
     path: str | None,
     segment: SpeechSegment,
     transcription: Transcription,
+    translation: Translation | None = None,
 ) -> None:
     if path is None:
         return
@@ -207,6 +286,17 @@ def write_debug_transcript(
         f"latency={transcription.latency_ms / 1_000:.2f}s\n"
         f"{transcription.text}\n\n"
     )
+    if translation is not None:
+        record = (
+            f"[{timestamp}] duration={segment.duration_ms / 1_000:.1f}s "
+            f"reason={segment.end_reason} language={language} "
+            f"latency={transcription.latency_ms / 1_000:.2f}s "
+            f"target={translation.target_language} "
+            f"translation_latency={translation.latency_ms / 1_000:.2f}s\n"
+            f"{translation.source_text}\n"
+            f"{translation.translated_text}\n\n"
+        )
+
     with transcript_path.open("a", encoding="utf-8") as transcript_file:
         transcript_file.write(record)
 

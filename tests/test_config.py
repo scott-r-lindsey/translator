@@ -32,10 +32,18 @@ def test_default_settings_are_valid(tmp_path: Path, monkeypatch: MonkeyPatch) ->
     assert settings.whisper_model == "large-v3"
     assert settings.whisper_device == "cuda"
     assert settings.whisper_device_index == 0
-    assert settings.whisper_compute_type == "int8_float16"
+    assert settings.whisper_compute_type == "float16"
     assert settings.whisper_language is None
     assert settings.whisper_task == "transcribe"
     assert settings.whisper_beam_size == 5
+    assert settings.translation_enabled is False
+    assert settings.translation_model == "facebook/nllb-200-distilled-600M"
+    assert settings.translation_device == "cpu"
+    assert settings.translation_device_index == 1
+    assert settings.translation_compute_dtype == "float32"
+    assert settings.translation_target_language == "eng_Latn"
+    assert settings.translation_display_mode == "both"
+    assert settings.translation_max_length == 512
 
 
 def test_settings_read_dotenv_file(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:

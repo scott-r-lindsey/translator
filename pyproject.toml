@@ -10,6 +10,9 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
     "python-dotenv>=1.2.2",
+    "sentencepiece>=0.2.1",
+    "torch>=2.12.0",
+    "transformers>=5.8.1",
     "webrtcvad-wheels>=2.0.14",
 ]
 

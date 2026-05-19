@@ -8,7 +8,7 @@ from translator.audio_types import AudioStatus, StatusCallback, VoiceActivityDet
 from translator.config import AppSettings
 from translator.pcm import rms_s16le
 from translator.speech_segments import SpeechSegmenter
-from translator.transcription import FasterWhisperTranscriber, Transcriber, TranscriptionWorker
+from translator.transcription import Transcriber, TranscriptionWorker, build_transcription_worker
 from translator.voice_activity import WebRtcVoiceDetector
 
 
@@ -22,14 +22,7 @@ class PulseAudioActivityMonitor:
         self._settings = settings
         self._segmenter = SpeechSegmenter(settings)
         self._voice_detector = voice_detector or WebRtcVoiceDetector(settings)
-        self._transcription_worker = (
-            TranscriptionWorker(
-                transcriber or FasterWhisperTranscriber(settings),
-                settings.debug_transcript_path,
-            )
-            if settings.transcription_enabled
-            else None
-        )
+        self._transcription_worker = build_audio_transcription_worker(settings, transcriber)
         self._process: subprocess.Popen[bytes] | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -152,3 +145,16 @@ def default_monitor_source() -> str | None:
         return None
 
     return f"{sink}.monitor"
+
+
+def build_audio_transcription_worker(
+    settings: AppSettings,
+    transcriber: Transcriber | None,
+) -> TranscriptionWorker | None:
+    if not settings.transcription_enabled:
+        return None
+
+    if transcriber is not None:
+        return TranscriptionWorker(transcriber, settings.debug_transcript_path)
+
+    return build_transcription_worker(settings)

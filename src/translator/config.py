@@ -37,10 +37,18 @@ class AppSettings(BaseSettings):
     whisper_model: str = "large-v3"
     whisper_device: str = "cuda"
     whisper_device_index: int = Field(default=0, ge=0)
-    whisper_compute_type: str = "int8_float16"
+    whisper_compute_type: str = "float16"
     whisper_language: str | None = None
     whisper_task: str = "transcribe"
     whisper_beam_size: int = Field(default=5, ge=1, le=10)
+    translation_enabled: bool = False
+    translation_model: str = "facebook/nllb-200-distilled-600M"
+    translation_device: str = "cpu"
+    translation_device_index: int = Field(default=1, ge=0)
+    translation_compute_dtype: str = "float32"
+    translation_target_language: str = "eng_Latn"
+    translation_display_mode: str = "both"
+    translation_max_length: int = Field(default=512, ge=32, le=2_048)
 
     @field_validator(
         "audio_source",

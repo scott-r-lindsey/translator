@@ -13,6 +13,10 @@ running with the provided env files. The `.models/` directory is ignored by git.
 Setup creates `.env` from `.env.dist` if it does not exist, installs
 dependencies, and blocks until configured models are downloaded and loadable.
 
+To force model work onto one physical NVIDIA card, set `CUDA_VISIBLE_DEVICES`
+in `.env`. For example, `CUDA_VISIBLE_DEVICES=1` makes physical GPU 1 appear as
+logical `cuda:0` to this app, so both model device indexes should be `0`.
+
 After changing model settings, pre-download them again with:
 
 ```bash
@@ -62,7 +66,7 @@ TRANSLATOR_DEBUG_TRANSCRIPT_PATH=debug/transcript.txt ./scripts/run.sh
 ```
 
 Completed speech chunks are transcribed with faster-whisper. The default model
-is `large-v3` on CUDA with `int8_float16` compute. The first run downloads the
+is `large-v3` on CUDA with `float16` compute. The first run downloads the
 model.
 
 To choose a specific NVIDIA GPU, set the CUDA device index:
@@ -77,11 +81,26 @@ Useful transcription settings:
 TRANSLATOR_WHISPER_MODEL=large-v3
 TRANSLATOR_WHISPER_DEVICE=cuda
 TRANSLATOR_WHISPER_DEVICE_INDEX=0
-TRANSLATOR_WHISPER_COMPUTE_TYPE=int8_float16
+TRANSLATOR_WHISPER_COMPUTE_TYPE=float16
 TRANSLATOR_WHISPER_LANGUAGE=
 ```
 
 Leave `TRANSLATOR_WHISPER_LANGUAGE` empty for automatic language detection.
+
+Local translation uses NLLB-200 when enabled:
+
+```bash
+TRANSLATOR_TRANSLATION_ENABLED=true
+TRANSLATOR_TRANSLATION_TARGET_LANGUAGE=eng_Latn
+TRANSLATOR_TRANSLATION_DISPLAY_MODE=both
+./scripts/download-models.sh
+./scripts/run.sh
+```
+
+Display modes are `original`, `translation`, or `both`.
+Translation defaults to CPU so it does not compete with Whisper for GPU VRAM.
+On a dedicated model GPU, set `TRANSLATOR_TRANSLATION_DEVICE=cuda` and use the
+logical device index exposed by `CUDA_VISIBLE_DEVICES`.
 
 ## Check
 

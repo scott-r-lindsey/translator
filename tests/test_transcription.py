@@ -12,6 +12,7 @@ from translator.transcription import (
     pcm_s16le_to_float32,
     write_debug_transcript,
 )
+from translator.translation import TranslatableText, Translation
 
 
 class FakeWhisperSegment:
@@ -45,10 +46,35 @@ class FakeTranscriber:
         return Transcription(text="done", language="en", latency_ms=250.0)
 
 
+class FakePreloadableTranscriber(FakeTranscriber):
+    def __init__(self) -> None:
+        self.prepared = False
+
+    def prepare(self) -> None:
+        self.prepared = True
+
+
 class FailingTranscriber:
     def transcribe(self, segment: SpeechSegment) -> Transcription:
         assert segment.sample_rate == 16_000
         raise RuntimeError("no cuda")
+
+
+class FakeTranslator:
+    def __init__(self) -> None:
+        self.prepared = False
+
+    def prepare(self) -> None:
+        self.prepared = True
+
+    def translate(self, transcription: TranslatableText) -> Translation:
+        return Translation(
+            source_text=transcription.text,
+            translated_text=f"{transcription.text} translated",
+            source_language=transcription.language,
+            target_language="eng_Latn",
+            latency_ms=100,
+        )
 
 
 def test_pcm_s16le_to_float32_normalizes_audio() -> None:
@@ -126,6 +152,49 @@ def test_transcription_worker_writes_debug_transcript(tmp_path: Path) -> None:
     assert "language=en" in contents
     assert "latency=0.25s" in contents
     assert "done" in contents
+
+
+def test_transcription_worker_translates_text() -> None:
+    emitted: list[str] = []
+    worker = TranscriptionWorker(
+        FakeTranscriber(),
+        translator=FakeTranslator(),
+        translation_display_mode="both",
+    )
+
+    worker.start(emitted.append)
+    worker.submit(speech_segment())
+    worker.stop()
+
+    assert emitted == [
+        "Loading translation model...",
+        "Transcribing 0.1s...",
+        "done\ndone translated",
+    ]
+
+
+def test_transcription_worker_preloads_models_before_processing() -> None:
+    emitted: list[str] = []
+    transcriber = FakePreloadableTranscriber()
+    translator = FakeTranslator()
+    worker = TranscriptionWorker(
+        transcriber,
+        translator=translator,
+        translation_display_mode="translation",
+    )
+
+    worker.start(emitted.append)
+    worker.submit(speech_segment())
+    worker.stop()
+
+    assert transcriber.prepared is True
+    assert translator.prepared is True
+    assert emitted == [
+        "Loading Whisper model...",
+        "Loading translation model...",
+        "Transcribing 0.1s...",
+        "done translated",
+    ]
 
 
 def test_write_debug_transcript_ignores_missing_path() -> None:

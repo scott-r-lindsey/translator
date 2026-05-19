@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from translator.config import AppSettings
-from translator.transcription import build_whisper_model
+from translator.transcription import verify_whisper_model
+from translator.translation import build_nllb_model
 
 
 def download_configured_models(settings: AppSettings) -> None:
@@ -16,13 +17,19 @@ def download_configured_models(settings: AppSettings) -> None:
         f"device_index={settings.whisper_device_index} "
         f"compute_type={settings.whisper_compute_type}"
     )
-    build_whisper_model(
-        settings.whisper_model,
-        device=settings.whisper_device,
-        device_index=settings.whisper_device_index,
-        compute_type=settings.whisper_compute_type,
-    )
+    verify_whisper_model(settings)
     print("Whisper model is available.")
+
+    if settings.translation_enabled:
+        print(
+            "Loading translation model "
+            f"model={settings.translation_model} "
+            f"device={settings.translation_device} "
+            f"device_index={settings.translation_device_index} "
+            f"dtype={settings.translation_compute_dtype}"
+        )
+        build_nllb_model(settings)
+        print("Translation model is available.")
 
 
 def main() -> None:
