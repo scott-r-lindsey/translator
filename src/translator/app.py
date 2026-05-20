@@ -126,7 +126,13 @@ class SubtitleWindow:
         live_frame.pack(fill=BOTH, expand=True)
         self._live_frame = live_frame
 
-        Label(live_frame, text="Original", anchor="w", style="Section.TLabel").pack(fill=X)
+        original_label = Label(
+            live_frame,
+            text="Original",
+            anchor="w",
+            style="Section.TLabel",
+        )
+        original_label.pack(fill=X)
         source_label = Label(
             live_frame,
             text="",
@@ -137,7 +143,13 @@ class SubtitleWindow:
         )
         source_label.pack(fill=BOTH, expand=True)
 
-        Label(live_frame, text="Translation", anchor="w", style="Section.TLabel").pack(fill=X)
+        translation_heading = Label(
+            live_frame,
+            text="Translation",
+            anchor="w",
+            style="Section.TLabel",
+        )
+        translation_heading.pack(fill=X)
         translation_label = Label(
             live_frame,
             text="",
@@ -147,6 +159,15 @@ class SubtitleWindow:
             wraplength=max(self._settings.width - 36, 1),
         )
         translation_label.pack(fill=BOTH, expand=True)
+        live_focus_targets = (
+            live_frame,
+            original_label,
+            source_label,
+            translation_heading,
+            translation_label,
+        )
+        for widget in live_focus_targets:
+            widget.bind("<Button-1>", lambda _event, app_root=root: app_root.focus_set())
 
         self._transcript_view = TranscriptView(content_frame)
 

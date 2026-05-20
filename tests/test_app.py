@@ -23,6 +23,7 @@ class FakeRoot:
         self.after_values: list[tuple[int, object]] = []
         self.mainloop_called = False
         self.destroy_called = False
+        self.focused = False
 
     def title(self, value: str) -> None:
         self.title_value = value
@@ -44,6 +45,9 @@ class FakeRoot:
 
     def destroy(self) -> None:
         self.destroy_called = True
+
+    def focus_set(self) -> None:
+        self.focused = True
 
 
 class FakeClock:
@@ -238,6 +242,20 @@ def test_language_selector_updates_audio_monitor(monkeypatch: MonkeyPatch) -> No
     assert monitor.source_languages == ["es"]
 
 
+def test_live_view_click_clears_focus(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
+    window = SubtitleWindow(AppSettings(), monitor)
+
+    patch_widgets(monkeypatch, window, root, widgets)
+
+    window.run()
+    widgets.source_label.fire("<Button-1>")
+
+    assert root.focused is True
+
+
 class FakeAudioMonitor:
     def __init__(self) -> None:
         self.prepared = False
@@ -285,6 +303,7 @@ class FakeWidget:
         self.command = command
         self.forgotten = False
         self.pack_calls: list[dict[str, object]] = []
+        self.bindings: dict[str, Callable[[object], None]] = {}
 
     def pack(self, *_args: object, **_kwargs: object) -> None:
         self.pack_calls.append(dict(_kwargs))
@@ -299,6 +318,12 @@ class FakeWidget:
     def invoke(self) -> None:
         if self.command is not None:
             self.command()
+
+    def bind(self, sequence: str, callback: Callable[[object], None]) -> None:
+        self.bindings[sequence] = callback
+
+    def fire(self, sequence: str) -> None:
+        self.bindings[sequence](object())
 
 
 class FakeWidgetFactory:
