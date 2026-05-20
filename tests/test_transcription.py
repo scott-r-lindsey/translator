@@ -16,8 +16,18 @@ from translator.translation import TranslatableText, Translation
 
 
 class FakeWhisperSegment:
-    def __init__(self, text: str) -> None:
+    def __init__(
+        self,
+        text: str,
+        *,
+        avg_logprob: float = -0.1,
+        compression_ratio: float = 1.0,
+        no_speech_prob: float = 0.1,
+    ) -> None:
         self.text = text
+        self.avg_logprob = avg_logprob
+        self.compression_ratio = compression_ratio
+        self.no_speech_prob = no_speech_prob
 
 
 class FakeWhisperInfo:
@@ -26,6 +36,9 @@ class FakeWhisperInfo:
 
 
 class FakeWhisperModel:
+    def __init__(self) -> None:
+        self.thresholds: list[tuple[float, float, float, bool]] = []
+
     def transcribe(
         self,
         _audio: object,
@@ -33,10 +46,22 @@ class FakeWhisperModel:
         language: str | None,
         task: str,
         beam_size: int,
+        no_speech_threshold: float,
+        log_prob_threshold: float,
+        compression_ratio_threshold: float,
+        condition_on_previous_text: bool,
     ) -> tuple[list[FakeWhisperSegment], FakeWhisperInfo]:
         assert language is None
         assert task == "transcribe"
         assert beam_size == 5
+        self.thresholds.append(
+            (
+                no_speech_threshold,
+                log_prob_threshold,
+                compression_ratio_threshold,
+                condition_on_previous_text,
+            )
+        )
         return [FakeWhisperSegment(" hello "), FakeWhisperSegment("world")], FakeWhisperInfo("en")
 
 
@@ -51,9 +76,34 @@ class LanguageRecordingWhisperModel:
         language: str | None,
         task: str,
         beam_size: int,
+        no_speech_threshold: float,
+        log_prob_threshold: float,
+        compression_ratio_threshold: float,
+        condition_on_previous_text: bool,
     ) -> tuple[list[FakeWhisperSegment], FakeWhisperInfo]:
         self.languages.append(language)
         return [FakeWhisperSegment("hola")], FakeWhisperInfo(None)
+
+
+class LowConfidenceWhisperModel:
+    def transcribe(
+        self,
+        _audio: object,
+        *,
+        language: str | None,
+        task: str,
+        beam_size: int,
+        no_speech_threshold: float,
+        log_prob_threshold: float,
+        compression_ratio_threshold: float,
+        condition_on_previous_text: bool,
+    ) -> tuple[list[FakeWhisperSegment], FakeWhisperInfo]:
+        return [
+            FakeWhisperSegment("keep me", no_speech_prob=0.1),
+            FakeWhisperSegment("drop noise", no_speech_prob=0.9),
+            FakeWhisperSegment("drop weak", avg_logprob=-2.0),
+            FakeWhisperSegment("drop loop", compression_ratio=3.0),
+        ], FakeWhisperInfo("en")
 
 
 class FakeTranscriber:
@@ -109,16 +159,17 @@ def test_pcm_s16le_to_float32_normalizes_audio() -> None:
 
 def test_faster_whisper_transcriber_uses_configured_model(monkeypatch: MonkeyPatch) -> None:
     calls: list[tuple[str, str, int, str]] = []
+    model = FakeWhisperModel()
 
     def build_model(
-        model: str,
+        model_name: str,
         *,
         device: str,
         device_index: int,
         compute_type: str,
     ) -> FakeWhisperModel:
-        calls.append((model, device, device_index, compute_type))
-        return FakeWhisperModel()
+        calls.append((model_name, device, device_index, compute_type))
+        return model
 
     monkeypatch.setattr("translator.transcription.build_whisper_model", build_model)
     transcriber = FasterWhisperTranscriber(
@@ -134,6 +185,7 @@ def test_faster_whisper_transcriber_uses_configured_model(monkeypatch: MonkeyPat
     transcription = transcriber.transcribe(speech_segment())
 
     assert calls == [("large-v3", "cuda", 1, "float16")]
+    assert model.thresholds == [(0.6, -1.0, 2.4, False)]
     assert transcription.text == "hello world"
     assert transcription.language == "en"
     assert transcription.latency_ms > 0
@@ -161,6 +213,26 @@ def test_faster_whisper_transcriber_uses_dynamic_source_language(
 
     assert model.languages == ["es"]
     assert transcription.language == "es"
+
+
+def test_faster_whisper_transcriber_filters_low_confidence_segments(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def build_model(
+        _model: str,
+        *,
+        device: str,
+        device_index: int,
+        compute_type: str,
+    ) -> LowConfidenceWhisperModel:
+        return LowConfidenceWhisperModel()
+
+    monkeypatch.setattr("translator.transcription.build_whisper_model", build_model)
+    transcriber = FasterWhisperTranscriber(AppSettings(whisper_language=None))
+
+    transcription = transcriber.transcribe(speech_segment())
+
+    assert transcription.text == "keep me"
 
 
 def test_transcription_worker_emits_status_and_text() -> None:

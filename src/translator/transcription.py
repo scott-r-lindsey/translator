@@ -50,6 +50,9 @@ class Preloadable(Protocol):
 
 class WhisperSegment(Protocol):
     text: str
+    avg_logprob: float
+    compression_ratio: float
+    no_speech_prob: float
 
 
 class WhisperInfo(Protocol):
@@ -64,6 +67,10 @@ class WhisperModelProtocol(Protocol):
         language: str | None,
         task: str,
         beam_size: int,
+        no_speech_threshold: float,
+        log_prob_threshold: float,
+        compression_ratio_threshold: float,
+        condition_on_previous_text: bool,
     ) -> tuple[object, WhisperInfo]:
         ...
 
@@ -97,10 +104,19 @@ class FasterWhisperTranscriber:
             language=language,
             task=self._settings.whisper_task,
             beam_size=self._settings.whisper_beam_size,
+            no_speech_threshold=self._settings.whisper_no_speech_threshold,
+            log_prob_threshold=self._settings.whisper_log_prob_threshold,
+            compression_ratio_threshold=self._settings.whisper_compression_ratio_threshold,
+            condition_on_previous_text=self._settings.whisper_condition_on_previous_text,
         )
+        segments = [
+            whisper_segment
+            for whisper_segment in iter_whisper_segments(raw_segments)
+            if self._is_confident_segment(whisper_segment)
+        ]
         text = " ".join(
             whisper_segment.text.strip()
-            for whisper_segment in iter_whisper_segments(raw_segments)
+            for whisper_segment in segments
             if whisper_segment.text.strip()
         )
         latency_ms = (time.perf_counter() - started_at) * 1_000
@@ -117,6 +133,31 @@ class FasterWhisperTranscriber:
     def set_source_language(self, language: str | None) -> None:
         with self._language_lock:
             self._language = language
+
+    def _is_confident_segment(self, segment: WhisperSegment) -> bool:
+        if segment.no_speech_prob > self._settings.whisper_no_speech_threshold:
+            LOGGER.info(
+                "Dropping likely non-speech segment no_speech_prob=%.2f text=%r",
+                segment.no_speech_prob,
+                segment.text,
+            )
+            return False
+        if segment.avg_logprob < self._settings.whisper_log_prob_threshold:
+            LOGGER.info(
+                "Dropping low-confidence segment avg_logprob=%.2f text=%r",
+                segment.avg_logprob,
+                segment.text,
+            )
+            return False
+        if segment.compression_ratio > self._settings.whisper_compression_ratio_threshold:
+            LOGGER.info(
+                "Dropping repetitive segment compression_ratio=%.2f text=%r",
+                segment.compression_ratio,
+                segment.text,
+            )
+            return False
+
+        return True
 
     def _load_model(self) -> WhisperModelProtocol:
         if self._model is None:
@@ -308,6 +349,10 @@ def verify_whisper_model(settings: AppSettings) -> None:
         language=settings.whisper_language,
         task=settings.whisper_task,
         beam_size=1,
+        no_speech_threshold=settings.whisper_no_speech_threshold,
+        log_prob_threshold=settings.whisper_log_prob_threshold,
+        compression_ratio_threshold=settings.whisper_compression_ratio_threshold,
+        condition_on_previous_text=settings.whisper_condition_on_previous_text,
     )
     for _segment in iter_whisper_segments(segments):
         break

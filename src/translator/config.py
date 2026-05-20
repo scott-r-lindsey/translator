@@ -41,6 +41,10 @@ class AppSettings(BaseSettings):
     whisper_language: str | None = None
     whisper_task: str = "transcribe"
     whisper_beam_size: int = Field(default=5, ge=1, le=10)
+    whisper_no_speech_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    whisper_log_prob_threshold: float = Field(default=-1.0, ge=-10.0, le=0.0)
+    whisper_compression_ratio_threshold: float = Field(default=2.4, ge=0.0, le=10.0)
+    whisper_condition_on_previous_text: bool = False
     translation_enabled: bool = False
     translation_model: str = "facebook/nllb-200-distilled-600M"
     translation_device: str = "cpu"

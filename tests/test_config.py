@@ -36,6 +36,10 @@ def test_default_settings_are_valid(tmp_path: Path, monkeypatch: MonkeyPatch) ->
     assert settings.whisper_language is None
     assert settings.whisper_task == "transcribe"
     assert settings.whisper_beam_size == 5
+    assert settings.whisper_no_speech_threshold == 0.6
+    assert settings.whisper_log_prob_threshold == -1.0
+    assert settings.whisper_compression_ratio_threshold == 2.4
+    assert settings.whisper_condition_on_previous_text is False
     assert settings.translation_enabled is False
     assert settings.translation_model == "facebook/nllb-200-distilled-600M"
     assert settings.translation_device == "cpu"
