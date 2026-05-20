@@ -15,8 +15,11 @@ from translator.audio import (
     status_event,
 )
 from translator.config import AppSettings
+from translator.transcript import TranscriptEntry
 from translator.ui.language_selector import SourceLanguageSelector
 from translator.ui.listen_control import ListenControl
+from translator.ui.mode_toggle import ModeToggle
+from translator.ui.transcript_view import TranscriptView
 
 
 class SubtitleWindow:
@@ -31,6 +34,10 @@ class SubtitleWindow:
         self._is_listening = False
         self._language_selector: SourceLanguageSelector | None = None
         self._listen_control: ListenControl | None = None
+        self._mode_toggle: ModeToggle | None = None
+        self._transcript_view: TranscriptView | None = None
+        self._live_frame: Any | None = None
+        self._content_frame: Any | None = None
         self._last_caption_at: float | None = None
         self._clock: Callable[[], float] = monotonic
         self._root_factory: Callable[[], Any] = Tk
@@ -98,6 +105,10 @@ class SubtitleWindow:
         language_selector.pack(side=LEFT, padx=(0, 12), pady=10)
         self._language_selector = language_selector
 
+        mode_toggle = ModeToggle(header, self._set_mode)
+        mode_toggle.pack(side=LEFT, padx=(0, 12), pady=10)
+        self._mode_toggle = mode_toggle
+
         status_label = Label(
             header,
             text="Loading models...",
@@ -107,9 +118,17 @@ class SubtitleWindow:
         )
         status_label.pack(side=RIGHT, fill=X, expand=True)
 
-        Label(frame, text="Original", anchor="w", style="Section.TLabel").pack(fill=X)
+        content_frame = Frame(frame, style="Shell.TFrame")
+        content_frame.pack(fill=BOTH, expand=True)
+        self._content_frame = content_frame
+
+        live_frame = Frame(content_frame, style="Shell.TFrame")
+        live_frame.pack(fill=BOTH, expand=True)
+        self._live_frame = live_frame
+
+        Label(live_frame, text="Original", anchor="w", style="Section.TLabel").pack(fill=X)
         source_label = Label(
-            frame,
+            live_frame,
             text="",
             anchor="nw",
             justify="left",
@@ -118,9 +137,9 @@ class SubtitleWindow:
         )
         source_label.pack(fill=BOTH, expand=True)
 
-        Label(frame, text="Translation", anchor="w", style="Section.TLabel").pack(fill=X)
+        Label(live_frame, text="Translation", anchor="w", style="Section.TLabel").pack(fill=X)
         translation_label = Label(
-            frame,
+            live_frame,
             text="",
             anchor="nw",
             justify="left",
@@ -128,6 +147,8 @@ class SubtitleWindow:
             wraplength=max(self._settings.width - 36, 1),
         )
         translation_label.pack(fill=BOTH, expand=True)
+
+        self._transcript_view = TranscriptView(content_frame)
 
         root.protocol("WM_DELETE_WINDOW", lambda: self._close(root))
         root.after(
@@ -162,6 +183,7 @@ class SubtitleWindow:
                 source_label.configure(text=event.source_text)
                 translation_label.configure(text=event.translated_text or event.source_text)
                 self._last_caption_at = self._clock()
+                self._append_transcript_entry(event)
                 if self._language_selector is not None:
                     self._language_selector.add_detected_language(event.detected_language)
 
@@ -193,6 +215,31 @@ class SubtitleWindow:
 
     def set_clock(self, clock: Callable[[], float]) -> None:
         self._clock = clock
+
+    def _set_mode(self, mode: str) -> None:
+        if self._live_frame is None or self._transcript_view is None:
+            return
+
+        if mode == "transcript":
+            self._live_frame.pack_forget()
+            self._transcript_view.pack(fill=BOTH, expand=True)
+            return
+
+        self._transcript_view.pack_forget()
+        self._live_frame.pack(fill=BOTH, expand=True)
+
+    def _append_transcript_entry(self, event: DisplayEvent) -> None:
+        if self._transcript_view is None:
+            return
+
+        self._transcript_view.append(
+            TranscriptEntry(
+                timestamp_seconds=self._clock(),
+                source_text=event.source_text,
+                translated_text=event.translated_text,
+                detected_language=event.detected_language,
+            )
+        )
 
     def _prepare_audio_monitor(self) -> None:
         try:

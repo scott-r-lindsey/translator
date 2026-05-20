@@ -11,6 +11,7 @@ from translator.audio import (
     status_event,
 )
 from translator.config import AppSettings
+from translator.transcript import TranscriptEntry
 
 
 class FakeRoot:
@@ -98,6 +99,29 @@ def test_subtitle_window_updates_hybrid_caption(monkeypatch: MonkeyPatch) -> Non
     assert widgets.source_label.configured_text == "hola"
     assert widgets.translation_label.configured_text == "hello"
     assert widgets.language_selector.detected_languages == ["es"]
+    assert len(widgets.transcript_view.entries) == 1
+    assert widgets.transcript_view.entries[0].source_text == "hola"
+    assert widgets.transcript_view.entries[0].translated_text == "hello"
+
+
+def test_subtitle_window_toggles_between_live_and_transcript(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
+    window = SubtitleWindow(AppSettings(), monitor)
+
+    patch_widgets(monkeypatch, window, root, widgets)
+
+    window.run()
+    widgets.mode_toggle.select("transcript")
+
+    assert widgets.live_frame.forgotten is True
+    assert widgets.transcript_view.packed is True
+
+    widgets.mode_toggle.select("live")
+
+    assert widgets.transcript_view.forgotten is True
+    assert widgets.live_frame.pack_calls[-1]["fill"] == "both"
 
 
 def test_subtitle_window_clears_stale_caption(monkeypatch: MonkeyPatch) -> None:
@@ -259,9 +283,15 @@ class FakeWidget:
         self.initial_text = text
         self.configured_text = ""
         self.command = command
+        self.forgotten = False
+        self.pack_calls: list[dict[str, object]] = []
 
     def pack(self, *_args: object, **_kwargs: object) -> None:
-        return None
+        self.pack_calls.append(dict(_kwargs))
+        self.forgotten = False
+
+    def pack_forget(self) -> None:
+        self.forgotten = True
 
     def configure(self, *, text: str) -> None:
         self.configured_text = text
@@ -276,6 +306,9 @@ class FakeWidgetFactory:
         self.labels: list[FakeWidget] = []
         self.language_selector = FakeLanguageSelector()
         self.listen_control = FakeListenControl()
+        self.mode_toggle = FakeModeToggle()
+        self.transcript_view = FakeTranscriptView()
+        self.frames: list[FakeWidget] = []
 
     @property
     def status_label(self) -> FakeWidget:
@@ -315,6 +348,27 @@ class FakeWidgetFactory:
         self.language_selector = FakeLanguageSelector(initial_language, on_change)
         return self.language_selector
 
+    def build_mode_toggle(
+        self,
+        _parent: object,
+        on_change: Callable[[str], None],
+    ) -> "FakeModeToggle":
+        self.mode_toggle = FakeModeToggle(on_change)
+        return self.mode_toggle
+
+    def build_transcript_view(self, _parent: object) -> "FakeTranscriptView":
+        self.transcript_view = FakeTranscriptView()
+        return self.transcript_view
+
+    def build_frame(self, *_args: object, **_kwargs: object) -> FakeWidget:
+        widget = FakeWidget()
+        self.frames.append(widget)
+        return widget
+
+    @property
+    def live_frame(self) -> FakeWidget:
+        return self.frames[3]
+
 
 class ImmediateThread:
     def __init__(
@@ -339,17 +393,50 @@ def patch_widgets(
     widgets: FakeWidgetFactory | None = None,
 ) -> FakeWidgetFactory:
     widget_factory = widgets or FakeWidgetFactory()
-    monkeypatch.setattr("translator.app.Frame", build_fake_widget)
+    monkeypatch.setattr("translator.app.Frame", widget_factory.build_frame)
     monkeypatch.setattr("translator.app.Label", widget_factory.build_label)
     monkeypatch.setattr("translator.app.ListenControl", widget_factory.build_listen_control)
     monkeypatch.setattr(
         "translator.app.SourceLanguageSelector",
         widget_factory.build_language_selector,
     )
+    monkeypatch.setattr("translator.app.ModeToggle", widget_factory.build_mode_toggle)
+    monkeypatch.setattr("translator.app.TranscriptView", widget_factory.build_transcript_view)
     monkeypatch.setattr("translator.app.Style", build_fake_style)
     monkeypatch.setattr("translator.app.Thread", ImmediateThread)
     monkeypatch.setattr(window, "_root_factory", lambda: root)
     return widget_factory
+
+
+class FakeModeToggle:
+    def __init__(self, on_change: Callable[[str], None] | None = None) -> None:
+        self._on_change = on_change
+
+    def pack(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    def select(self, mode: str) -> None:
+        if self._on_change is not None:
+            self._on_change(mode)
+
+
+class FakeTranscriptView:
+    def __init__(self) -> None:
+        self.entries: list[TranscriptEntry] = []
+        self.packed = False
+        self.forgotten = False
+        self.pack_calls: list[dict[str, object]] = []
+
+    def pack(self, *_args: object, **_kwargs: object) -> None:
+        self.packed = True
+        self.forgotten = False
+        self.pack_calls.append(dict(_kwargs))
+
+    def pack_forget(self) -> None:
+        self.forgotten = True
+
+    def append(self, entry: TranscriptEntry) -> None:
+        self.entries.append(entry)
 
 
 class FakeLanguageSelector:
