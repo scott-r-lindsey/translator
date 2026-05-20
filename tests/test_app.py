@@ -80,12 +80,13 @@ def test_subtitle_window_updates_hybrid_caption(monkeypatch: MonkeyPatch) -> Non
 
     window.run()
     run_first_after(root)
-    monitor.emit(caption_event("hola", "hello"))
+    monitor.emit(caption_event("hola", "hello", "es"))
     run_first_after(root)
 
     assert widgets.status_label.configured_text == "Ready"
     assert widgets.source_label.configured_text == "hola"
     assert widgets.translation_label.configured_text == "hello"
+    assert widgets.language_selector.detected_languages == ["es"]
 
 
 def test_listen_button_toggles_audio_capture(monkeypatch: MonkeyPatch) -> None:
@@ -135,11 +136,27 @@ def test_audio_status_updates_listen_control_state(monkeypatch: MonkeyPatch) -> 
     assert widgets.listen_control.status_values[-1] == "speech"
 
 
+def test_language_selector_updates_audio_monitor(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
+    window = SubtitleWindow(AppSettings(whisper_language="en"), monitor)
+
+    patch_widgets(monkeypatch, window, root, widgets)
+
+    window.run()
+    widgets.language_selector.select("es")
+
+    assert widgets.language_selector.initial_language == "en"
+    assert monitor.source_languages == ["es"]
+
+
 class FakeAudioMonitor:
     def __init__(self) -> None:
         self.prepared = False
         self.started = False
         self.stopped = False
+        self.source_languages: list[str | None] = []
         self._callback: StatusCallback | None = None
 
     def prepare(self, on_status: StatusCallback) -> None:
@@ -154,6 +171,9 @@ class FakeAudioMonitor:
 
     def stop(self) -> None:
         self.stopped = True
+
+    def set_source_language(self, language: str | None) -> None:
+        self.source_languages.append(language)
 
     def emit(self, event: DisplayEvent) -> None:
         if self._callback is None:
@@ -191,6 +211,7 @@ class FakeWidget:
 class FakeWidgetFactory:
     def __init__(self) -> None:
         self.labels: list[FakeWidget] = []
+        self.language_selector = FakeLanguageSelector()
         self.listen_control = FakeListenControl()
 
     @property
@@ -222,6 +243,15 @@ class FakeWidgetFactory:
         self.listen_control = FakeListenControl(command)
         return self.listen_control
 
+    def build_language_selector(
+        self,
+        _parent: object,
+        initial_language: str | None,
+        on_change: Callable[[str | None], None],
+    ) -> "FakeLanguageSelector":
+        self.language_selector = FakeLanguageSelector(initial_language, on_change)
+        return self.language_selector
+
 
 class ImmediateThread:
     def __init__(
@@ -249,10 +279,35 @@ def patch_widgets(
     monkeypatch.setattr("translator.app.Frame", build_fake_widget)
     monkeypatch.setattr("translator.app.Label", widget_factory.build_label)
     monkeypatch.setattr("translator.app.ListenControl", widget_factory.build_listen_control)
+    monkeypatch.setattr(
+        "translator.app.SourceLanguageSelector",
+        widget_factory.build_language_selector,
+    )
     monkeypatch.setattr("translator.app.Style", build_fake_style)
     monkeypatch.setattr("translator.app.Thread", ImmediateThread)
     monkeypatch.setattr(window, "_root_factory", lambda: root)
     return widget_factory
+
+
+class FakeLanguageSelector:
+    def __init__(
+        self,
+        initial_language: str | None = None,
+        on_change: Callable[[str | None], None] | None = None,
+    ) -> None:
+        self.initial_language = initial_language
+        self._on_change = on_change
+        self.detected_languages: list[str | None] = []
+
+    def pack(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    def add_detected_language(self, code: str | None) -> None:
+        self.detected_languages.append(code)
+
+    def select(self, language: str | None) -> None:
+        if self._on_change is not None:
+            self._on_change(language)
 
 
 class FakeListenControl:

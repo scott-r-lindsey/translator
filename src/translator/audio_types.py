@@ -26,6 +26,7 @@ class DisplayEvent:
     text: str = ""
     source_text: str = ""
     translated_text: str = ""
+    detected_language: str | None = None
 
 
 class SegmentEndReason(StrEnum):
@@ -46,6 +47,9 @@ class AudioActivityMonitor(Protocol):
     def stop(self) -> None:
         ...
 
+    def set_source_language(self, language: str | None) -> None:
+        ...
+
 
 class VoiceActivityDetector(Protocol):
     def is_speech(self, chunk: bytes) -> bool:
@@ -56,9 +60,14 @@ def status_event(text: str) -> DisplayEvent:
     return DisplayEvent(kind=DisplayEventKind.STATUS, text=text)
 
 
-def caption_event(source_text: str, translated_text: str) -> DisplayEvent:
+def caption_event(
+    source_text: str,
+    translated_text: str,
+    detected_language: str | None = None,
+) -> DisplayEvent:
     return DisplayEvent(
         kind=DisplayEventKind.CAPTION,
         source_text=source_text,
         translated_text=translated_text,
+        detected_language=detected_language,
     )

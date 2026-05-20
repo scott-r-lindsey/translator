@@ -14,6 +14,7 @@ from translator.audio import (
     status_event,
 )
 from translator.config import AppSettings
+from translator.ui.language_selector import SourceLanguageSelector
 from translator.ui.listen_control import ListenControl
 
 
@@ -27,6 +28,7 @@ class SubtitleWindow:
         self._audio_monitor = audio_monitor or PulseAudioActivityMonitor(settings)
         self._event_queue: SimpleQueue[DisplayEvent] = SimpleQueue()
         self._is_listening = False
+        self._language_selector: SourceLanguageSelector | None = None
         self._listen_control: ListenControl | None = None
         self._root_factory: Callable[[], Any] = Tk
 
@@ -40,6 +42,12 @@ class SubtitleWindow:
         style = Style(root)
         style.configure("Shell.TFrame", background="#111111")
         style.configure("Header.TFrame", background="#1c1c1c")
+        style.configure(
+            "HeaderMuted.TLabel",
+            background="#1c1c1c",
+            foreground="#9ca3af",
+            font=("Inter", 10),
+        )
         style.configure(
             "Status.TLabel",
             background="#1c1c1c",
@@ -78,6 +86,14 @@ class SubtitleWindow:
         listen_control = ListenControl(header, self._toggle_listening)
         listen_control.pack(side=LEFT, padx=12, pady=10)
         self._listen_control = listen_control
+
+        language_selector = SourceLanguageSelector(
+            header,
+            self._settings.whisper_language,
+            self._audio_monitor.set_source_language,
+        )
+        language_selector.pack(side=LEFT, padx=(0, 12), pady=10)
+        self._language_selector = language_selector
 
         status_label = Label(
             header,
@@ -142,6 +158,8 @@ class SubtitleWindow:
             elif event.kind is DisplayEventKind.CAPTION:
                 source_label.configure(text=event.source_text)
                 translation_label.configure(text=event.translated_text or event.source_text)
+                if self._language_selector is not None:
+                    self._language_selector.add_detected_language(event.detected_language)
 
         root.after(
             100,

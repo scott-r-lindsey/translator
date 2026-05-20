@@ -40,6 +40,22 @@ class FakeWhisperModel:
         return [FakeWhisperSegment(" hello "), FakeWhisperSegment("world")], FakeWhisperInfo("en")
 
 
+class LanguageRecordingWhisperModel:
+    def __init__(self) -> None:
+        self.languages: list[str | None] = []
+
+    def transcribe(
+        self,
+        _audio: object,
+        *,
+        language: str | None,
+        task: str,
+        beam_size: int,
+    ) -> tuple[list[FakeWhisperSegment], FakeWhisperInfo]:
+        self.languages.append(language)
+        return [FakeWhisperSegment("hola")], FakeWhisperInfo(None)
+
+
 class FakeTranscriber:
     def transcribe(self, segment: SpeechSegment) -> Transcription:
         assert segment.sample_rate == 16_000
@@ -52,6 +68,14 @@ class FakePreloadableTranscriber(FakeTranscriber):
 
     def prepare(self) -> None:
         self.prepared = True
+
+
+class FakeLanguageConfigurableTranscriber(FakeTranscriber):
+    def __init__(self) -> None:
+        self.source_languages: list[str | None] = []
+
+    def set_source_language(self, language: str | None) -> None:
+        self.source_languages.append(language)
 
 
 class FailingTranscriber:
@@ -113,6 +137,30 @@ def test_faster_whisper_transcriber_uses_configured_model(monkeypatch: MonkeyPat
     assert transcription.text == "hello world"
     assert transcription.language == "en"
     assert transcription.latency_ms > 0
+
+
+def test_faster_whisper_transcriber_uses_dynamic_source_language(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    model = LanguageRecordingWhisperModel()
+
+    def build_model(
+        _model: str,
+        *,
+        device: str,
+        device_index: int,
+        compute_type: str,
+    ) -> LanguageRecordingWhisperModel:
+        return model
+
+    monkeypatch.setattr("translator.transcription.build_whisper_model", build_model)
+    transcriber = FasterWhisperTranscriber(AppSettings(whisper_language=None))
+
+    transcriber.set_source_language("es")
+    transcription = transcriber.transcribe(speech_segment())
+
+    assert model.languages == ["es"]
+    assert transcription.language == "es"
 
 
 def test_transcription_worker_emits_status_and_text() -> None:
@@ -201,6 +249,16 @@ def test_transcription_worker_preloads_models_before_processing() -> None:
         "Transcribing 0.1s...",
         "done translated",
     ]
+
+
+def test_transcription_worker_updates_transcriber_source_language() -> None:
+    transcriber = FakeLanguageConfigurableTranscriber()
+    worker = TranscriptionWorker(transcriber)
+
+    worker.set_source_language("fr")
+    worker.set_source_language(None)
+
+    assert transcriber.source_languages == ["fr", None]
 
 
 def test_write_debug_transcript_ignores_missing_path() -> None:

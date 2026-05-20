@@ -47,6 +47,10 @@ class PulseAudioActivityMonitor:
         )
         self._thread.start()
 
+    def set_source_language(self, language: str | None) -> None:
+        if self._transcription_worker is not None:
+            self._transcription_worker.set_source_language(language)
+
     def stop(self) -> None:
         self._stop_event.set()
         if self._transcription_worker is not None:

@@ -38,6 +38,11 @@ class Transcriber(Protocol):
         ...
 
 
+class LanguageConfigurable(Protocol):
+    def set_source_language(self, language: str | None) -> None:
+        ...
+
+
 class Preloadable(Protocol):
     def prepare(self) -> None:
         ...
@@ -79,14 +84,17 @@ class FasterWhisperTranscriber:
     def __init__(self, settings: AppSettings) -> None:
         self._settings = settings
         self._model: WhisperModelProtocol | None = None
+        self._language = settings.whisper_language
+        self._language_lock = threading.Lock()
 
     def transcribe(self, segment: SpeechSegment) -> Transcription:
         started_at = time.perf_counter()
         model = self._load_model()
         audio = pcm_s16le_to_float32(segment.pcm)
+        language = self.source_language
         raw_segments, info = model.transcribe(
             audio,
-            language=self._settings.whisper_language,
+            language=language,
             task=self._settings.whisper_task,
             beam_size=self._settings.whisper_beam_size,
         )
@@ -96,10 +104,19 @@ class FasterWhisperTranscriber:
             if whisper_segment.text.strip()
         )
         latency_ms = (time.perf_counter() - started_at) * 1_000
-        return Transcription(text=text, language=info.language, latency_ms=latency_ms)
+        return Transcription(text=text, language=info.language or language, latency_ms=latency_ms)
 
     def prepare(self) -> None:
         self._load_model()
+
+    @property
+    def source_language(self) -> str | None:
+        with self._language_lock:
+            return self._language
+
+    def set_source_language(self, language: str | None) -> None:
+        with self._language_lock:
+            self._language = language
 
     def _load_model(self) -> WhisperModelProtocol:
         if self._model is None:
@@ -152,6 +169,10 @@ class TranscriptionWorker:
 
     def submit(self, segment: SpeechSegment) -> None:
         self._queue.put(segment)
+
+    def set_source_language(self, language: str | None) -> None:
+        if hasattr(self._transcriber, "set_source_language"):
+            cast(LanguageConfigurable, self._transcriber).set_source_language(language)
 
     def stop(self) -> None:
         if self._thread is None:
@@ -208,19 +229,24 @@ class TranscriptionWorker:
                 )
                 translated_text = translation.translated_text if translation is not None else ""
                 if self._translation_display_mode == "translation":
-                    self._emit_caption("", rendered)
+                    self._emit_caption("", rendered, transcription.language)
                 elif self._translation_display_mode == "original":
-                    self._emit_caption(rendered, "")
+                    self._emit_caption(rendered, "", transcription.language)
                 else:
-                    self._emit_caption(transcription.text, translated_text)
+                    self._emit_caption(transcription.text, translated_text, transcription.language)
 
     def _emit_status(self, text: str) -> None:
         if self._callback is not None:
             self._callback(status_event(text))
 
-    def _emit_caption(self, source_text: str, translated_text: str) -> None:
+    def _emit_caption(
+        self,
+        source_text: str,
+        translated_text: str,
+        detected_language: str | None,
+    ) -> None:
         if self._callback is not None:
-            self._callback(caption_event(source_text, translated_text))
+            self._callback(caption_event(source_text, translated_text, detected_language))
 
     def _prepare_models(self) -> None:
         self._prepare_model("Loading Whisper model...", self._transcriber)
