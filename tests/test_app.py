@@ -45,6 +45,17 @@ class FakeRoot:
         self.destroy_called = True
 
 
+class FakeClock:
+    def __init__(self) -> None:
+        self._time = 0.0
+
+    def now(self) -> float:
+        return self._time
+
+    def advance(self, seconds: float) -> None:
+        self._time += seconds
+
+
 def test_subtitle_window_applies_basic_root_settings(monkeypatch: MonkeyPatch) -> None:
     root = FakeRoot()
     monitor = FakeAudioMonitor()
@@ -87,6 +98,58 @@ def test_subtitle_window_updates_hybrid_caption(monkeypatch: MonkeyPatch) -> Non
     assert widgets.source_label.configured_text == "hola"
     assert widgets.translation_label.configured_text == "hello"
     assert widgets.language_selector.detected_languages == ["es"]
+
+
+def test_subtitle_window_clears_stale_caption(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
+    clock = FakeClock()
+    window = SubtitleWindow(AppSettings(caption_timeout_seconds=10), monitor)
+    window.set_clock(clock.now)
+
+    patch_widgets(monkeypatch, window, root, widgets)
+
+    window.run()
+    run_first_after(root)
+    monitor.emit(caption_event("hola", "hello", "es"))
+    run_first_after(root)
+
+    assert widgets.source_label.configured_text == "hola"
+    assert widgets.translation_label.configured_text == "hello"
+
+    clock.advance(9.9)
+    run_first_after(root)
+
+    assert widgets.source_label.configured_text == "hola"
+    assert widgets.translation_label.configured_text == "hello"
+
+    clock.advance(0.1)
+    run_first_after(root)
+
+    assert widgets.source_label.configured_text == ""
+    assert widgets.translation_label.configured_text == ""
+
+
+def test_subtitle_window_keeps_caption_when_timeout_is_zero(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
+    clock = FakeClock()
+    window = SubtitleWindow(AppSettings(caption_timeout_seconds=0), monitor)
+    window.set_clock(clock.now)
+
+    patch_widgets(monkeypatch, window, root, widgets)
+
+    window.run()
+    run_first_after(root)
+    monitor.emit(caption_event("hola", "hello", "es"))
+    run_first_after(root)
+    clock.advance(1_000)
+    run_first_after(root)
+
+    assert widgets.source_label.configured_text == "hola"
+    assert widgets.translation_label.configured_text == "hello"
 
 
 def test_listen_button_toggles_audio_capture(monkeypatch: MonkeyPatch) -> None:

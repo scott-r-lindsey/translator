@@ -15,6 +15,7 @@ def test_default_settings_are_valid(tmp_path: Path, monkeypatch: MonkeyPatch) ->
     assert settings.width == 960
     assert settings.height == 420
     assert settings.always_on_top is True
+    assert settings.caption_timeout_seconds == 10
     assert settings.audio_source is None
     assert settings.audio_sample_rate == 16_000
     assert settings.audio_chunk_frames == 1_600

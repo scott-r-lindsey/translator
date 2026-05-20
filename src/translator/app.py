@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from queue import SimpleQueue
 from threading import Thread
+from time import monotonic
 from tkinter import BOTH, LEFT, RIGHT, Tk, X
 from tkinter.ttk import Frame, Label, Style
 from typing import Any
@@ -30,6 +31,8 @@ class SubtitleWindow:
         self._is_listening = False
         self._language_selector: SourceLanguageSelector | None = None
         self._listen_control: ListenControl | None = None
+        self._last_caption_at: float | None = None
+        self._clock: Callable[[], float] = monotonic
         self._root_factory: Callable[[], Any] = Tk
 
     def run(self) -> None:
@@ -158,9 +161,11 @@ class SubtitleWindow:
             elif event.kind is DisplayEventKind.CAPTION:
                 source_label.configure(text=event.source_text)
                 translation_label.configure(text=event.translated_text or event.source_text)
+                self._last_caption_at = self._clock()
                 if self._language_selector is not None:
                     self._language_selector.add_detected_language(event.detected_language)
 
+        self._clear_expired_caption(source_label, translation_label)
         root.after(
             100,
             lambda: self._poll_events(root, status_label, source_label, translation_label),
@@ -185,6 +190,9 @@ class SubtitleWindow:
     def _close(self, root: Any) -> None:
         self._audio_monitor.stop()
         root.destroy()
+
+    def set_clock(self, clock: Callable[[], float]) -> None:
+        self._clock = clock
 
     def _prepare_audio_monitor(self) -> None:
         try:
@@ -213,6 +221,19 @@ class SubtitleWindow:
         elif status.startswith("Loading "):
             self._listen_control.set_enabled(False)
             self._listen_control.set_status("loading")
+
+    def _clear_expired_caption(self, source_label: Any, translation_label: Any) -> None:
+        if self._settings.caption_timeout_seconds == 0 or self._last_caption_at is None:
+            return
+
+        elapsed_seconds = self._clock() - self._last_caption_at
+        if elapsed_seconds < self._settings.caption_timeout_seconds:
+            return
+
+        source_label.configure(text="")
+        translation_label.configure(text="")
+        self._last_caption_at = None
+
 
 def main() -> None:
     SubtitleWindow(AppSettings()).run()
