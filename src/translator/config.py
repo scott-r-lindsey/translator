@@ -53,6 +53,10 @@ class AppSettings(BaseSettings):
     translation_target_language: str = "eng_Latn"
     translation_display_mode: str = "both"
     translation_max_length: int = Field(default=512, ge=32, le=2_048)
+    translation_max_new_tokens: int = Field(default=128, ge=8, le=512)
+    translation_no_repeat_ngram_size: int = Field(default=3, ge=0, le=10)
+    translation_repetition_penalty: float = Field(default=1.15, ge=1.0, le=2.0)
+    translation_repeated_word_limit: int = Field(default=3, ge=1, le=10)
 
     @field_validator(
         "audio_source",

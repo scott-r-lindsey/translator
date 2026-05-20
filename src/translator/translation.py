@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -88,9 +89,14 @@ class NllbTranslator:
             forced_bos_token_id=tokenizer.convert_tokens_to_ids(
                 self._settings.translation_target_language
             ),
-            max_length=self._settings.translation_max_length,
+            max_new_tokens=self._settings.translation_max_new_tokens,
+            no_repeat_ngram_size=self._settings.translation_no_repeat_ngram_size,
+            repetition_penalty=self._settings.translation_repetition_penalty,
         )
-        translated_text = tokenizer.batch_decode(output_tokens, skip_special_tokens=True)[0]
+        translated_text = clean_repeated_words(
+            tokenizer.batch_decode(output_tokens, skip_special_tokens=True)[0],
+            self._settings.translation_repeated_word_limit,
+        )
         latency_ms = (time.perf_counter() - started_at) * 1_000
         return Translation(
             source_text=transcription.text,
@@ -161,3 +167,29 @@ def render_translation(
         return translation.translated_text
 
     return f"{transcription.text}\n{translation.translated_text}"
+
+
+def clean_repeated_words(text: str, repeated_word_limit: int) -> str:
+    tokens = re.findall(r"\w+|\W+", text)
+    cleaned: list[str] = []
+    last_word = ""
+    repeat_count = 0
+
+    for token in tokens:
+        if not token.isalnum():
+            cleaned.append(token)
+            continue
+
+        normalized = token.casefold()
+        if normalized == last_word:
+            repeat_count += 1
+        else:
+            last_word = normalized
+            repeat_count = 1
+
+        if repeat_count <= repeated_word_limit:
+            cleaned.append(token)
+        elif cleaned and not cleaned[-1].isalnum():
+            cleaned.pop()
+
+    return "".join(cleaned).strip()

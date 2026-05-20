@@ -7,6 +7,7 @@ from translator.transcription import Transcription
 from translator.translation import (
     NllbTranslator,
     Translation,
+    clean_repeated_words,
     nllb_language_for_whisper_language,
     render_translation,
     translation_device_target,
@@ -62,6 +63,35 @@ def test_nllb_translator_uses_language_and_target_tokens(monkeypatch: MonkeyPatc
     assert translation.latency_ms > 0
 
 
+def test_nllb_translator_uses_anti_repetition_generation(monkeypatch: MonkeyPatch) -> None:
+    tokenizer = FakeTokenizer()
+    model = FakeModel()
+
+    def build_model(_settings: AppSettings) -> tuple[FakeTokenizer, FakeModel]:
+        return tokenizer, model
+
+    monkeypatch.setattr("translator.translation.build_nllb_model", build_model)
+    translator = NllbTranslator(
+        AppSettings(
+            translation_max_new_tokens=64,
+            translation_no_repeat_ngram_size=4,
+            translation_repetition_penalty=1.25,
+        )
+    )
+
+    translator.translate(Transcription(text="hola", language="es"))
+
+    assert model.max_new_tokens == 64
+    assert model.no_repeat_ngram_size == 4
+    assert model.repetition_penalty == 1.25
+
+
+def test_clean_repeated_words_caps_decoder_loops() -> None:
+    text = "Oh, no, no, no, no, no, no, not with you."
+
+    assert clean_repeated_words(text, repeated_word_limit=3) == "Oh, no, no, no, not with you."
+
+
 class FakeTokenizerInputs(dict[str, object]):
     def to(self, _device: str) -> "FakeTokenizerInputs":
         return self
@@ -88,7 +118,13 @@ class FakeTokenizer:
 class FakeModel:
     def __init__(self) -> None:
         self.forced_bos_token_id = 0
+        self.max_new_tokens = 0
+        self.no_repeat_ngram_size = 0
+        self.repetition_penalty = 0.0
 
     def generate(self, **kwargs: Any) -> list[list[int]]:
         self.forced_bos_token_id = int(kwargs["forced_bos_token_id"])
+        self.max_new_tokens = int(kwargs["max_new_tokens"])
+        self.no_repeat_ngram_size = int(kwargs["no_repeat_ngram_size"])
+        self.repetition_penalty = float(kwargs["repetition_penalty"])
         return [[1, 2, 3]]

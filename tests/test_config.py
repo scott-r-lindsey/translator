@@ -48,6 +48,10 @@ def test_default_settings_are_valid(tmp_path: Path, monkeypatch: MonkeyPatch) ->
     assert settings.translation_target_language == "eng_Latn"
     assert settings.translation_display_mode == "both"
     assert settings.translation_max_length == 512
+    assert settings.translation_max_new_tokens == 128
+    assert settings.translation_no_repeat_ngram_size == 3
+    assert settings.translation_repetition_penalty == 1.15
+    assert settings.translation_repeated_word_limit == 3
 
 
 def test_settings_read_dotenv_file(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
