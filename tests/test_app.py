@@ -1,7 +1,15 @@
+from collections.abc import Callable
+
 from pytest import MonkeyPatch
 
 from translator.app import SubtitleWindow
-from translator.audio import AudioStatus, StatusCallback
+from translator.audio import (
+    AudioStatus,
+    DisplayEvent,
+    StatusCallback,
+    caption_event,
+    status_event,
+)
 from translator.config import AppSettings
 
 
@@ -40,93 +48,118 @@ class FakeRoot:
 def test_subtitle_window_applies_basic_root_settings(monkeypatch: MonkeyPatch) -> None:
     root = FakeRoot()
     monitor = FakeAudioMonitor()
-    settings = AppSettings(width=800, height=200, opacity=0.8, always_on_top=False)
+    widgets = FakeWidgetFactory()
+    settings = AppSettings(width=900, height=420, opacity=0.8, always_on_top=False)
     window = SubtitleWindow(settings, monitor)
 
-    monkeypatch.setattr("translator.app.Frame", build_fake_widget)
-    monkeypatch.setattr("translator.app.Label", build_fake_widget)
-    monkeypatch.setattr("translator.app.Style", build_fake_style)
-    monkeypatch.setattr(window, "_root_factory", lambda: root)
+    patch_widgets(monkeypatch, window, root, widgets)
 
     window.run()
 
     assert root.title_value == "Live Subtitles"
-    assert root.geometry_value == "800x200"
+    assert root.geometry_value == "900x420"
     assert ("-topmost", False) in root.attributes_values
     assert ("-alpha", 0.8) in root.attributes_values
     assert root.protocol_values[0][0] == "WM_DELETE_WINDOW"
     assert root.after_values[0][0] == 100
-    assert monitor.started is True
+    assert monitor.prepared is True
+    assert monitor.started is False
     assert root.mainloop_called is True
+    assert widgets.source_label.initial_text == ""
+    assert widgets.translation_label.initial_text == ""
+    assert widgets.listen_control.enabled_values == []
 
 
-def test_subtitle_window_updates_label_from_audio_status(monkeypatch: MonkeyPatch) -> None:
+def test_subtitle_window_updates_hybrid_caption(monkeypatch: MonkeyPatch) -> None:
     root = FakeRoot()
-    label = FakeWidget()
     monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
     window = SubtitleWindow(AppSettings(), monitor)
 
-    monkeypatch.setattr("translator.app.Frame", build_fake_widget)
-    monkeypatch.setattr("translator.app.Label", build_label_factory(label))
-    monkeypatch.setattr("translator.app.Style", build_fake_style)
-    monkeypatch.setattr(window, "_root_factory", lambda: root)
+    patch_widgets(monkeypatch, window, root, widgets)
 
     window.run()
-    monitor.emit(AudioStatus.AUDIO_DETECTED)
+    run_first_after(root)
+    monitor.emit(caption_event("hola", "hello"))
+    run_first_after(root)
 
-    callback = root.after_values[0][1]
-    assert callable(callback)
-    callback()
-
-    assert label.configured_text == "Audio detected"
+    assert widgets.status_label.configured_text == "Ready"
+    assert widgets.source_label.configured_text == "hola"
+    assert widgets.translation_label.configured_text == "hello"
 
 
-def test_subtitle_window_keeps_transcript_through_passive_status(monkeypatch: MonkeyPatch) -> None:
+def test_listen_button_toggles_audio_capture(monkeypatch: MonkeyPatch) -> None:
     root = FakeRoot()
-    label = FakeWidget()
     monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
     window = SubtitleWindow(AppSettings(), monitor)
 
-    monkeypatch.setattr("translator.app.Frame", build_fake_widget)
-    monkeypatch.setattr("translator.app.Label", build_label_factory(label))
-    monkeypatch.setattr("translator.app.Style", build_fake_style)
-    monkeypatch.setattr(window, "_root_factory", lambda: root)
+    patch_widgets(monkeypatch, window, root, widgets)
 
     window.run()
-    monitor.emit_text("hello world")
-    monitor.emit(AudioStatus.SILENCE)
+    widgets.listen_control.invoke()
 
-    callback = root.after_values[0][1]
-    assert callable(callback)
-    callback()
+    assert monitor.started is False
 
-    assert label.configured_text == "hello world"
+    run_first_after(root)
+
+    assert widgets.listen_control.enabled is True
+
+    widgets.listen_control.invoke()
+
+    assert monitor.started is True
+    assert widgets.listen_control.listening is True
+
+    widgets.listen_control.invoke()
+    run_first_after(root)
+
+    assert monitor.stopped is True
+    assert widgets.listen_control.listening is False
+    assert widgets.status_label.configured_text == "Ready"
+    assert widgets.listen_control.status_values[-1] == "ready"
+
+
+def test_audio_status_updates_listen_control_state(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
+    window = SubtitleWindow(AppSettings(), monitor)
+
+    patch_widgets(monkeypatch, window, root, widgets)
+
+    window.run()
+    run_first_after(root)
+    monitor.emit(status_event(AudioStatus.SPEECH_DETECTED.value))
+    run_first_after(root)
+
+    assert widgets.listen_control.status_values[-1] == "speech"
 
 
 class FakeAudioMonitor:
     def __init__(self) -> None:
+        self.prepared = False
         self.started = False
         self.stopped = False
         self._callback: StatusCallback | None = None
 
+    def prepare(self, on_status: StatusCallback) -> None:
+        self.prepared = True
+        self._callback = on_status
+        on_status(status_event(AudioStatus.READY.value))
+
     def start(self, on_status: StatusCallback) -> None:
         self.started = True
         self._callback = on_status
+        on_status(status_event(AudioStatus.LISTENING.value))
 
     def stop(self) -> None:
         self.stopped = True
 
-    def emit(self, status: AudioStatus) -> None:
+    def emit(self, event: DisplayEvent) -> None:
         if self._callback is None:
-            raise AssertionError("Monitor was not started")
+            raise AssertionError("Monitor was not prepared")
 
-        self._callback(status.value)
-
-    def emit_text(self, text: str) -> None:
-        if self._callback is None:
-            raise AssertionError("Monitor was not started")
-
-        self._callback(text)
+        self._callback(event)
 
 
 class FakeStyle:
@@ -135,14 +168,119 @@ class FakeStyle:
 
 
 class FakeWidget:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        text: str = "",
+        command: Callable[[], None] | None = None,
+    ) -> None:
+        self.initial_text = text
         self.configured_text = ""
+        self.command = command
 
     def pack(self, *_args: object, **_kwargs: object) -> None:
         return None
 
     def configure(self, *, text: str) -> None:
         self.configured_text = text
+
+    def invoke(self) -> None:
+        if self.command is not None:
+            self.command()
+
+
+class FakeWidgetFactory:
+    def __init__(self) -> None:
+        self.labels: list[FakeWidget] = []
+        self.listen_control = FakeListenControl()
+
+    @property
+    def status_label(self) -> FakeWidget:
+        return self.labels[0]
+
+    @property
+    def source_label(self) -> FakeWidget:
+        return self.labels[2]
+
+    @property
+    def translation_label(self) -> FakeWidget:
+        return self.labels[4]
+
+    def build_label(self, *_args: object, **_kwargs: object) -> FakeWidget:
+        text = _kwargs.get("text", "")
+        if not isinstance(text, str):
+            raise AssertionError("Label text must be a string")
+
+        widget = FakeWidget(text=text)
+        self.labels.append(widget)
+        return widget
+
+    def build_listen_control(
+        self,
+        _parent: object,
+        command: Callable[[], None],
+    ) -> "FakeListenControl":
+        self.listen_control = FakeListenControl(command)
+        return self.listen_control
+
+
+class ImmediateThread:
+    def __init__(
+        self,
+        *,
+        target: Callable[[], None],
+        name: str,
+        daemon: bool,
+    ) -> None:
+        self._target = target
+        self.name = name
+        self.daemon = daemon
+
+    def start(self) -> None:
+        self._target()
+
+
+def patch_widgets(
+    monkeypatch: MonkeyPatch,
+    window: SubtitleWindow,
+    root: FakeRoot,
+    widgets: FakeWidgetFactory | None = None,
+) -> FakeWidgetFactory:
+    widget_factory = widgets or FakeWidgetFactory()
+    monkeypatch.setattr("translator.app.Frame", build_fake_widget)
+    monkeypatch.setattr("translator.app.Label", widget_factory.build_label)
+    monkeypatch.setattr("translator.app.ListenControl", widget_factory.build_listen_control)
+    monkeypatch.setattr("translator.app.Style", build_fake_style)
+    monkeypatch.setattr("translator.app.Thread", ImmediateThread)
+    monkeypatch.setattr(window, "_root_factory", lambda: root)
+    return widget_factory
+
+
+class FakeListenControl:
+    def __init__(self, command: Callable[[], None] | None = None) -> None:
+        self.enabled = False
+        self.listening = False
+        self.command = command
+        self.enabled_values: list[bool] = []
+        self.listening_values: list[bool] = []
+        self.status_values: list[str] = []
+
+    def pack(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    def set_enabled(self, enabled: bool) -> None:
+        self.enabled = enabled
+        self.enabled_values.append(enabled)
+
+    def set_listening(self, listening: bool) -> None:
+        self.listening = listening
+        self.listening_values.append(listening)
+
+    def set_status(self, status: str) -> None:
+        self.status_values.append(status)
+
+    def invoke(self) -> None:
+        if self.command is not None:
+            self.command()
 
 
 def build_fake_style(*_args: object, **_kwargs: object) -> FakeStyle:
@@ -153,8 +291,7 @@ def build_fake_widget(*_args: object, **_kwargs: object) -> FakeWidget:
     return FakeWidget()
 
 
-def build_label_factory(label: FakeWidget):
-    def factory(*_args: object, **_kwargs: object) -> FakeWidget:
-        return label
-
-    return factory
+def run_first_after(root: FakeRoot) -> None:
+    callback = root.after_values[0][1]
+    assert callable(callback)
+    callback()

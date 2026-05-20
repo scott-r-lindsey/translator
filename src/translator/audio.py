@@ -2,9 +2,13 @@ from translator.audio_capture import PulseAudioActivityMonitor, build_capture_co
 from translator.audio_types import (
     AudioActivityMonitor,
     AudioStatus,
+    DisplayEvent,
+    DisplayEventKind,
     SegmentEndReason,
     StatusCallback,
     VoiceActivityDetector,
+    caption_event,
+    status_event,
 )
 from translator.pcm import rms_s16le
 from translator.speech_segments import SpeechSegment, SpeechSegmenter
@@ -27,6 +31,8 @@ from translator.voice_activity import (
 __all__ = [
     "AudioActivityMonitor",
     "AudioStatus",
+    "DisplayEvent",
+    "DisplayEventKind",
     "PulseAudioActivityMonitor",
     "SegmentEndReason",
     "SpeechSegment",
@@ -46,7 +52,9 @@ __all__ = [
     "build_capture_command",
     "pcm_s16le_to_float32",
     "rms_s16le",
+    "caption_event",
     "split_vad_frames",
+    "status_event",
     "validate_vad_settings",
     "write_debug_transcript",
 ]

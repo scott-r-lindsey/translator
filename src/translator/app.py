@@ -1,11 +1,20 @@
 from collections.abc import Callable
 from queue import SimpleQueue
-from tkinter import BOTH, Tk
+from threading import Thread
+from tkinter import BOTH, LEFT, RIGHT, Tk, X
 from tkinter.ttk import Frame, Label, Style
 from typing import Any
 
-from translator.audio import AudioActivityMonitor, AudioStatus, PulseAudioActivityMonitor
+from translator.audio import (
+    AudioActivityMonitor,
+    AudioStatus,
+    DisplayEvent,
+    DisplayEventKind,
+    PulseAudioActivityMonitor,
+    status_event,
+)
 from translator.config import AppSettings
+from translator.ui.listen_control import ListenControl
 
 
 class SubtitleWindow:
@@ -16,8 +25,9 @@ class SubtitleWindow:
     ) -> None:
         self._settings = settings
         self._audio_monitor = audio_monitor or PulseAudioActivityMonitor(settings)
-        self._status_queue: SimpleQueue[str] = SimpleQueue()
-        self._showing_transcript = False
+        self._event_queue: SimpleQueue[DisplayEvent] = SimpleQueue()
+        self._is_listening = False
+        self._listen_control: ListenControl | None = None
         self._root_factory: Callable[[], Any] = Tk
 
     def run(self) -> None:
@@ -29,54 +39,162 @@ class SubtitleWindow:
 
         style = Style(root)
         style.configure("Shell.TFrame", background="#111111")
+        style.configure("Header.TFrame", background="#1c1c1c")
         style.configure(
-            "Subtitle.TLabel",
+            "Status.TLabel",
+            background="#1c1c1c",
+            foreground="#d8d8d8",
+            font=("Inter", 12),
+            padding=12,
+        )
+        style.configure(
+            "Section.TLabel",
+            background="#111111",
+            foreground="#9ca3af",
+            font=("Inter", 11),
+            padding=(18, 14, 18, 4),
+        )
+        style.configure(
+            "Source.TLabel",
+            background="#111111",
+            foreground="#c7c7c7",
+            font=("Inter", 18),
+            padding=(18, 0, 18, 12),
+        )
+        style.configure(
+            "Translation.TLabel",
             background="#111111",
             foreground="#f5f5f5",
-            font=("Inter", 24),
-            padding=24,
+            font=("Inter", 26),
+            padding=(18, 0, 18, 18),
         )
 
         frame = Frame(root, style="Shell.TFrame")
         frame.pack(fill=BOTH, expand=True)
 
-        label = Label(
-            frame,
-            text=self._settings.placeholder_text,
-            anchor="center",
-            justify="center",
-            style="Subtitle.TLabel",
-            wraplength=max(self._settings.width - 48, 1),
+        header = Frame(frame, style="Header.TFrame")
+        header.pack(fill=X)
+
+        listen_control = ListenControl(header, self._toggle_listening)
+        listen_control.pack(side=LEFT, padx=12, pady=10)
+        self._listen_control = listen_control
+
+        status_label = Label(
+            header,
+            text="Loading models...",
+            anchor="e",
+            justify="right",
+            style="Status.TLabel",
         )
-        label.pack(fill=BOTH, expand=True)
+        status_label.pack(side=RIGHT, fill=X, expand=True)
+
+        Label(frame, text="Original", anchor="w", style="Section.TLabel").pack(fill=X)
+        source_label = Label(
+            frame,
+            text="",
+            anchor="nw",
+            justify="left",
+            style="Source.TLabel",
+            wraplength=max(self._settings.width - 36, 1),
+        )
+        source_label.pack(fill=BOTH, expand=True)
+
+        Label(frame, text="Translation", anchor="w", style="Section.TLabel").pack(fill=X)
+        translation_label = Label(
+            frame,
+            text="",
+            anchor="nw",
+            justify="left",
+            style="Translation.TLabel",
+            wraplength=max(self._settings.width - 36, 1),
+        )
+        translation_label.pack(fill=BOTH, expand=True)
 
         root.protocol("WM_DELETE_WINDOW", lambda: self._close(root))
-        root.after(100, lambda: self._poll_status(root, label))
-        self._audio_monitor.start(self._status_queue.put)
+        root.after(
+            100,
+            lambda: self._poll_events(
+                root,
+                status_label,
+                source_label,
+                translation_label,
+            ),
+        )
+        Thread(
+            target=self._prepare_audio_monitor,
+            name="model-preload",
+            daemon=True,
+        ).start()
         root.mainloop()
 
-    def _poll_status(self, root: Any, label: Any) -> None:
-        latest_status: str | None = None
-        while not self._status_queue.empty():
-            message = self._status_queue.get()
-            latest_status = self._next_display_message(message, latest_status)
+    def _poll_events(
+        self,
+        root: Any,
+        status_label: Any,
+        source_label: Any,
+        translation_label: Any,
+    ) -> None:
+        while not self._event_queue.empty():
+            event = self._event_queue.get()
+            if event.kind is DisplayEventKind.STATUS:
+                status_label.configure(text=event.text)
+                self._handle_status(event.text)
+            elif event.kind is DisplayEventKind.CAPTION:
+                source_label.configure(text=event.source_text)
+                translation_label.configure(text=event.translated_text or event.source_text)
 
-        if latest_status is not None:
-            label.configure(text=latest_status)
+        root.after(
+            100,
+            lambda: self._poll_events(root, status_label, source_label, translation_label),
+        )
 
-        root.after(100, lambda: self._poll_status(root, label))
+    def _toggle_listening(self) -> None:
+        if self._is_listening:
+            self._audio_monitor.stop()
+            self._is_listening = False
+            self._event_queue.put(status_event("Ready"))
+            if self._listen_control is not None:
+                self._listen_control.set_listening(False)
+            return
 
-    def _next_display_message(self, message: str, current: str | None) -> str | None:
-        if message in PASSIVE_STATUS_MESSAGES and self._showing_transcript:
-            return current
+        if self._listen_control is None or not self._listen_control.enabled:
+            return
 
-        self._showing_transcript = message not in STATUS_MESSAGES
-        return message
+        self._audio_monitor.start(self._event_queue.put)
+        self._is_listening = True
+        self._listen_control.set_listening(True)
 
     def _close(self, root: Any) -> None:
         self._audio_monitor.stop()
         root.destroy()
 
+    def _prepare_audio_monitor(self) -> None:
+        try:
+            self._audio_monitor.prepare(self._event_queue.put)
+        except Exception as error:
+            self._event_queue.put(status_event(f"Model load unavailable: {error}"))
+
+    def _handle_status(self, status: str) -> None:
+        if self._listen_control is None:
+            return
+
+        if status == AudioStatus.READY.value:
+            self._listen_control.set_enabled(True)
+            self._listen_control.set_status("ready")
+        elif status == AudioStatus.LISTENING.value:
+            self._listen_control.set_status("listening")
+        elif status == AudioStatus.AUDIO_DETECTED.value:
+            self._listen_control.set_status("audio")
+        elif status == AudioStatus.SPEECH_DETECTED.value:
+            self._listen_control.set_status("speech")
+        elif status == AudioStatus.SILENCE.value:
+            self._listen_control.set_status("listening")
+        elif "unavailable" in status.lower():
+            self._listen_control.set_enabled(False)
+            self._listen_control.set_status("error")
+        elif status.startswith("Loading "):
+            self._listen_control.set_enabled(False)
+            self._listen_control.set_status("loading")
 
 def main() -> None:
     SubtitleWindow(AppSettings()).run()
@@ -84,11 +202,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-STATUS_MESSAGES = {status.value for status in AudioStatus}
-PASSIVE_STATUS_MESSAGES = {
-    AudioStatus.LISTENING.value,
-    AudioStatus.SILENCE.value,
-    AudioStatus.AUDIO_DETECTED.value,
-}

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from pytest import MonkeyPatch
 
-from translator.audio import SegmentEndReason
+from translator.audio import DisplayEvent, DisplayEventKind, SegmentEndReason
 from translator.config import AppSettings
 from translator.speech_segments import SpeechSegment
 from translator.transcription import (
@@ -116,29 +116,33 @@ def test_faster_whisper_transcriber_uses_configured_model(monkeypatch: MonkeyPat
 
 
 def test_transcription_worker_emits_status_and_text() -> None:
-    emitted: list[str] = []
+    emitted: list[DisplayEvent] = []
     worker = TranscriptionWorker(FakeTranscriber())
 
     worker.start(emitted.append)
     worker.submit(speech_segment())
     worker.stop()
 
-    assert emitted == ["Transcribing 0.1s...", "done"]
+    assert event_texts(emitted) == ["Ready", "Transcribing 0.1s...", "done"]
 
 
 def test_transcription_worker_emits_failure_details() -> None:
-    emitted: list[str] = []
+    emitted: list[DisplayEvent] = []
     worker = TranscriptionWorker(FailingTranscriber())
 
     worker.start(emitted.append)
     worker.submit(speech_segment())
     worker.stop()
 
-    assert emitted == ["Transcribing 0.1s...", "Transcription unavailable: no cuda"]
+    assert event_texts(emitted) == [
+        "Ready",
+        "Transcribing 0.1s...",
+        "Transcription unavailable: no cuda",
+    ]
 
 
 def test_transcription_worker_writes_debug_transcript(tmp_path: Path) -> None:
-    emitted: list[str] = []
+    emitted: list[DisplayEvent] = []
     transcript_path = tmp_path / "transcript.txt"
     worker = TranscriptionWorker(FakeTranscriber(), str(transcript_path))
 
@@ -155,7 +159,7 @@ def test_transcription_worker_writes_debug_transcript(tmp_path: Path) -> None:
 
 
 def test_transcription_worker_translates_text() -> None:
-    emitted: list[str] = []
+    emitted: list[DisplayEvent] = []
     worker = TranscriptionWorker(
         FakeTranscriber(),
         translator=FakeTranslator(),
@@ -166,15 +170,16 @@ def test_transcription_worker_translates_text() -> None:
     worker.submit(speech_segment())
     worker.stop()
 
-    assert emitted == [
+    assert event_texts(emitted) == [
         "Loading translation model...",
+        "Ready",
         "Transcribing 0.1s...",
         "done\ndone translated",
     ]
 
 
 def test_transcription_worker_preloads_models_before_processing() -> None:
-    emitted: list[str] = []
+    emitted: list[DisplayEvent] = []
     transcriber = FakePreloadableTranscriber()
     translator = FakeTranslator()
     worker = TranscriptionWorker(
@@ -189,9 +194,10 @@ def test_transcription_worker_preloads_models_before_processing() -> None:
 
     assert transcriber.prepared is True
     assert translator.prepared is True
-    assert emitted == [
+    assert event_texts(emitted) == [
         "Loading Whisper model...",
         "Loading translation model...",
+        "Ready",
         "Transcribing 0.1s...",
         "done translated",
     ]
@@ -208,3 +214,12 @@ def speech_segment() -> SpeechSegment:
         end_reason=SegmentEndReason.SILENCE,
         duration_ms=100.0,
     )
+
+
+def event_texts(events: list[DisplayEvent]) -> list[str]:
+    return [
+        event.text
+        if event.kind is DisplayEventKind.STATUS
+        else "\n".join(part for part in [event.source_text, event.translated_text] if part)
+        for event in events
+    ]

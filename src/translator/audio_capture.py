@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import threading
 
-from translator.audio_types import AudioStatus, StatusCallback, VoiceActivityDetector
+from translator.audio_types import AudioStatus, StatusCallback, VoiceActivityDetector, status_event
 from translator.config import AppSettings
 from translator.pcm import rms_s16le
 from translator.speech_segments import SpeechSegmenter
@@ -26,6 +26,13 @@ class PulseAudioActivityMonitor:
         self._process: subprocess.Popen[bytes] | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+
+    def prepare(self, on_status: StatusCallback) -> None:
+        if self._transcription_worker is None:
+            on_status(status_event(AudioStatus.READY.value))
+            return
+
+        self._transcription_worker.prepare(on_status)
 
     def start(self, on_status: StatusCallback) -> None:
         if self._thread is not None:
@@ -55,6 +62,7 @@ class PulseAudioActivityMonitor:
 
         if self._thread is not None:
             self._thread.join(timeout=1)
+            self._thread = None
 
     def _run(self, on_status: StatusCallback) -> None:
         if self._transcription_worker is not None:
@@ -62,7 +70,7 @@ class PulseAudioActivityMonitor:
 
         command = build_capture_command(self._settings)
         if command is None:
-            on_status(AudioStatus.CAPTURE_UNAVAILABLE)
+            on_status(status_event(AudioStatus.CAPTURE_UNAVAILABLE.value))
             return
 
         try:
@@ -72,20 +80,20 @@ class PulseAudioActivityMonitor:
                 stderr=subprocess.DEVNULL,
             )
         except OSError:
-            on_status(AudioStatus.CAPTURE_UNAVAILABLE)
+            on_status(status_event(AudioStatus.CAPTURE_UNAVAILABLE.value))
             return
 
-        on_status(AudioStatus.LISTENING)
+        on_status(status_event(AudioStatus.LISTENING.value))
         chunk_bytes = self._settings.audio_chunk_frames * 2
 
         while not self._stop_event.is_set():
             if self._process.stdout is None:
-                on_status(AudioStatus.CAPTURE_UNAVAILABLE)
+                on_status(status_event(AudioStatus.CAPTURE_UNAVAILABLE.value))
                 return
 
             chunk = self._process.stdout.read(chunk_bytes)
             if not chunk:
-                on_status(AudioStatus.CAPTURE_UNAVAILABLE)
+                on_status(status_event(AudioStatus.CAPTURE_UNAVAILABLE.value))
                 return
 
             level = rms_s16le(chunk)
@@ -102,7 +110,7 @@ class PulseAudioActivityMonitor:
             else:
                 status = AudioStatus.SILENCE
 
-            on_status(status.value)
+            on_status(status_event(status.value))
 
 
 def build_capture_command(settings: AppSettings) -> list[str] | None:

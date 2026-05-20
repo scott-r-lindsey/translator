@@ -13,7 +13,7 @@ from typing import Any, Protocol, cast
 import numpy as np
 from numpy.typing import NDArray
 
-from translator.audio_types import AudioStatus, StatusCallback
+from translator.audio_types import AudioStatus, StatusCallback, caption_event, status_event
 from translator.config import AppSettings
 from translator.speech_segments import SpeechSegment
 from translator.translation import (
@@ -135,13 +135,14 @@ class TranscriptionWorker:
         self._queue: Queue[SpeechSegment | None] = Queue()
         self._thread: threading.Thread | None = None
         self._callback: StatusCallback | None = None
+        self._prepared = False
 
     def start(self, on_status: StatusCallback) -> None:
         if self._thread is not None:
             return
 
         self._callback = on_status
-        self._prepare_models()
+        self.prepare(on_status)
         self._thread = threading.Thread(
             target=self._run,
             name="transcription-worker",
@@ -158,6 +159,15 @@ class TranscriptionWorker:
 
         self._queue.put(None)
         self._thread.join(timeout=2)
+        self._thread = None
+
+    def prepare(self, on_status: StatusCallback) -> None:
+        self._callback = on_status
+        if self._prepared:
+            return
+
+        self._prepare_models()
+        self._prepared = True
 
     def _run(self) -> None:
         while True:
@@ -165,12 +175,12 @@ class TranscriptionWorker:
             if segment is None:
                 return
 
-            self._emit(f"Transcribing {segment.duration_ms / 1_000:.1f}s...")
+            self._emit_status(f"Transcribing {segment.duration_ms / 1_000:.1f}s...")
             try:
                 transcription = self._transcriber.transcribe(segment)
             except Exception as error:
                 LOGGER.exception("Transcription failed")
-                self._emit(f"{AudioStatus.TRANSCRIPTION_UNAVAILABLE.value}: {error}")
+                self._emit_status(f"{AudioStatus.TRANSCRIPTION_UNAVAILABLE.value}: {error}")
                 continue
 
             translation = self._translate(transcription)
@@ -191,28 +201,38 @@ class TranscriptionWorker:
                 translation,
             )
             if transcription.text:
-                self._emit(
-                    render_translation(
-                        transcription,
-                        translation,
-                        self._translation_display_mode,
-                    )
+                rendered = render_translation(
+                    transcription,
+                    translation,
+                    self._translation_display_mode,
                 )
+                translated_text = translation.translated_text if translation is not None else ""
+                if self._translation_display_mode == "translation":
+                    self._emit_caption("", rendered)
+                elif self._translation_display_mode == "original":
+                    self._emit_caption(rendered, "")
+                else:
+                    self._emit_caption(transcription.text, translated_text)
 
-    def _emit(self, text: str) -> None:
+    def _emit_status(self, text: str) -> None:
         if self._callback is not None:
-            self._callback(text)
+            self._callback(status_event(text))
+
+    def _emit_caption(self, source_text: str, translated_text: str) -> None:
+        if self._callback is not None:
+            self._callback(caption_event(source_text, translated_text))
 
     def _prepare_models(self) -> None:
         self._prepare_model("Loading Whisper model...", self._transcriber)
         if self._translator is not None:
             self._prepare_model("Loading translation model...", self._translator)
+        self._emit_status(AudioStatus.READY.value)
 
     def _prepare_model(self, message: str, model: object) -> None:
         if not hasattr(model, "prepare"):
             return
 
-        self._emit(message)
+        self._emit_status(message)
         cast(Preloadable, model).prepare()
 
     def _translate(self, transcription: Transcription) -> Translation | None:

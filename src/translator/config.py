@@ -16,8 +16,8 @@ class AppSettings(BaseSettings):
 
     window_title: str = "Live Subtitles"
     placeholder_text: str = "Waiting for audio..."
-    width: int = Field(default=640, ge=320, le=1920)
-    height: int = Field(default=160, ge=100, le=1080)
+    width: int = Field(default=960, ge=320, le=1920)
+    height: int = Field(default=420, ge=100, le=1080)
     opacity: float = Field(default=0.9, ge=0.2, le=1.0)
     always_on_top: bool = True
     audio_source: str | None = None
