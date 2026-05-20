@@ -23,6 +23,11 @@ After changing model settings, pre-download them again with:
 ./scripts/download-models.sh
 ```
 
+The app can run with Hugging Face offline flags enabled after models are
+cached. `download-models.sh` clears those runtime offline flags by default so it
+can fetch newly configured models. Set `TRANSLATOR_DOWNLOAD_OFFLINE=true` only
+when you want the script to verify the local cache without network access.
+
 ## Run
 
 ```bash

@@ -25,6 +25,7 @@ def test_download_configured_models_loads_whisper_model(monkeypatch: MonkeyPatch
             whisper_device="cuda",
             whisper_device_index=1,
             whisper_compute_type="float16",
+            translation_enabled=False,
         )
     )
 
@@ -49,7 +50,7 @@ def test_download_configured_models_loads_translation_model_when_enabled(
     monkeypatch.setattr("translator.model_cache.verify_whisper_model", verify_whisper_model)
     monkeypatch.setattr("translator.model_cache.build_nllb_model", build_translation_model)
 
-    download_configured_models(AppSettings(translation_enabled=True))
+    download_configured_models(AppSettings(transcription_enabled=True, translation_enabled=True))
 
     assert whisper_calls == 1
     assert translation_calls == 1
@@ -63,4 +64,4 @@ def test_download_configured_models_skips_when_transcription_disabled(
 
     monkeypatch.setattr("translator.model_cache.verify_whisper_model", fail_verify_model)
 
-    download_configured_models(AppSettings(transcription_enabled=False))
+    download_configured_models(AppSettings(transcription_enabled=False, translation_enabled=False))
