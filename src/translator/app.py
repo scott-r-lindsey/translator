@@ -39,7 +39,12 @@ class SubtitleWindow:
         self._clear_transcript_button: Any | None = None
         self._live_frame: Any | None = None
         self._content_frame: Any | None = None
+        self._root: Any | None = None
         self._current_mode = "live"
+        self._mode_geometries = {
+            "live": f"{settings.width}x{settings.height}",
+            "transcript": f"{settings.width}x{settings.height * 2}",
+        }
         self._has_transcript_entries = False
         self._last_caption_at: float | None = None
         self._clock: Callable[[], float] = monotonic
@@ -47,8 +52,9 @@ class SubtitleWindow:
 
     def run(self) -> None:
         root = self._root_factory()
+        self._root = root
         root.title(self._settings.window_title)
-        root.geometry(f"{self._settings.width}x{self._settings.height}")
+        root.geometry(self._mode_geometries["live"])
         root.attributes("-topmost", self._settings.always_on_top)
         root.attributes("-alpha", self._settings.opacity)
 
@@ -263,18 +269,59 @@ class SubtitleWindow:
     def _set_mode(self, mode: str) -> None:
         if self._live_frame is None or self._transcript_view is None:
             return
+        if mode == self._current_mode:
+            return
 
+        self._remember_current_geometry()
         if mode == "transcript":
             self._live_frame.pack_forget()
             self._transcript_view.pack(fill=BOTH, expand=True)
             self._current_mode = mode
+            self._apply_current_geometry()
             self._update_clear_transcript_button()
             return
 
         self._transcript_view.pack_forget()
         self._live_frame.pack(fill=BOTH, expand=True)
         self._current_mode = "live"
+        self._apply_current_geometry()
         self._update_clear_transcript_button()
+
+    def _remember_current_geometry(self) -> None:
+        if self._root is None:
+            return
+
+        self._mode_geometries[self._current_mode] = self._root.geometry()
+
+    def _apply_current_geometry(self) -> None:
+        if self._root is None:
+            return
+
+        before_x = self._root.winfo_rootx()
+        before_y = self._root.winfo_rooty()
+        geometry = self._geometry_with_current_origin(self._mode_geometries[self._current_mode])
+        self._root.geometry(geometry)
+        self._root.update_idletasks()
+
+        after_x = self._root.winfo_rootx()
+        after_y = self._root.winfo_rooty()
+        if after_x == before_x and after_y == before_y:
+            return
+
+        origin_x, origin_y = _geometry_origin_values(geometry)
+        corrected_geometry = (
+            f"{_geometry_size(geometry)}"
+            f"{_geometry_position(origin_x + before_x - after_x)}"
+            f"{_geometry_position(origin_y + before_y - after_y)}"
+        )
+        self._root.geometry(corrected_geometry)
+
+    def _geometry_with_current_origin(self, geometry: str) -> str:
+        if self._root is None:
+            return geometry
+
+        size = _geometry_size(geometry)
+        return f"{size}{_geometry_origin(self._root.geometry())}"
 
     def _append_transcript_entry(self, event: DisplayEvent) -> None:
         if self._transcript_view is None:
@@ -354,6 +401,40 @@ class SubtitleWindow:
 
 def main() -> None:
     SubtitleWindow(AppSettings()).run()
+
+
+def _geometry_size(geometry: str) -> str:
+    for index, character in enumerate(geometry):
+        if index > 0 and character in {"+", "-"}:
+            return geometry[:index]
+    return geometry
+
+
+def _geometry_origin(geometry: str) -> str:
+    for index, character in enumerate(geometry):
+        if index > 0 and character in {"+", "-"}:
+            return geometry[index:]
+    return "+0+0"
+
+
+def _geometry_origin_values(geometry: str) -> tuple[int, int]:
+    origin = _geometry_origin(geometry)
+    values: list[int] = []
+    start = 0
+    for index, character in enumerate(origin):
+        if index > 0 and character in {"+", "-"}:
+            values.append(int(origin[start:index]))
+            start = index
+    values.append(int(origin[start:]))
+    if len(values) < 2:
+        return (0, 0)
+    return (values[0], values[1])
+
+
+def _geometry_position(value: int) -> str:
+    if value < 0:
+        return str(value)
+    return f"+{value}"
 
 
 if __name__ == "__main__":

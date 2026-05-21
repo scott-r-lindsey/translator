@@ -19,6 +19,10 @@ class FakeRoot:
     def __init__(self) -> None:
         self.title_value = ""
         self.geometry_value = ""
+        self.geometry_values: list[str] = []
+        self.root_x = 0
+        self.root_y = 0
+        self.next_geometry_drift: tuple[int, int] | None = None
         self.attributes_values: list[tuple[str, object]] = []
         self.protocol_values: list[tuple[str, object]] = []
         self.after_values: list[tuple[int, object]] = []
@@ -29,8 +33,12 @@ class FakeRoot:
     def title(self, value: str) -> None:
         self.title_value = value
 
-    def geometry(self, value: str) -> None:
-        self.geometry_value = value
+    def geometry(self, value: str | None = None) -> str:
+        if value is not None:
+            self.geometry_value = value
+            self.geometry_values.append(value)
+            self._update_root_position(value)
+        return self.geometry_value
 
     def attributes(self, name: str, value: object) -> None:
         self.attributes_values.append((name, value))
@@ -49,6 +57,28 @@ class FakeRoot:
 
     def focus_set(self) -> None:
         self.focused = True
+
+    def update_idletasks(self) -> None:
+        return None
+
+    def winfo_rootx(self) -> int:
+        return self.root_x
+
+    def winfo_rooty(self) -> int:
+        return self.root_y
+
+    def _update_root_position(self, geometry: str) -> None:
+        origin = geometry_origin_values(geometry)
+        if origin is None:
+            return
+
+        drift_x = 0
+        drift_y = 0
+        if self.next_geometry_drift is not None:
+            drift_x, drift_y = self.next_geometry_drift
+            self.next_geometry_drift = None
+        self.root_x = origin[0] + drift_x
+        self.root_y = origin[1] + drift_y
 
 
 class FakeClock:
@@ -133,6 +163,59 @@ def test_subtitle_window_toggles_between_live_and_transcript(monkeypatch: Monkey
     assert widgets.transcript_view.forgotten is True
     assert widgets.live_frame.pack_calls[-1]["fill"] == "both"
     assert widgets.clear_button.forgotten is True
+
+
+def test_subtitle_window_remembers_mode_geometries(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
+    window = SubtitleWindow(AppSettings(width=500, height=300), monitor)
+
+    patch_widgets(monkeypatch, window, root, widgets)
+
+    window.run()
+
+    assert root.geometry_values == ["500x300"]
+
+    root.geometry_value = "640x360+10+20"
+    root.root_x = 10
+    root.root_y = 20
+    widgets.mode_toggle.select("transcript")
+
+    assert root.geometry_values[-1] == "500x600+10+20"
+
+    root.geometry_value = "1200x700+30+40"
+    root.root_x = 30
+    root.root_y = 40
+    widgets.mode_toggle.select("live")
+
+    assert root.geometry_values[-1] == "640x360+30+40"
+
+    root.geometry_value = "700x390+50+60"
+    root.root_x = 50
+    root.root_y = 60
+    widgets.mode_toggle.select("transcript")
+
+    assert root.geometry_values[-1] == "1200x700+50+60"
+
+
+def test_subtitle_window_corrects_geometry_drift(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
+    window = SubtitleWindow(AppSettings(width=500, height=300), monitor)
+
+    patch_widgets(monkeypatch, window, root, widgets)
+
+    window.run()
+    root.geometry_value = "640x360+10+20"
+    root.root_x = 10
+    root.root_y = 20
+    root.next_geometry_drift = (4, -5)
+
+    widgets.mode_toggle.select("transcript")
+
+    assert root.geometry_values[-2:] == ["500x600+10+20", "500x600+6+25"]
 
 
 def test_clear_transcript_button_clears_transcript(monkeypatch: MonkeyPatch) -> None:
@@ -578,3 +661,21 @@ def run_first_after(root: FakeRoot) -> None:
     callback = root.after_values[0][1]
     assert callable(callback)
     callback()
+
+
+def geometry_origin_values(geometry: str) -> tuple[int, int] | None:
+    for index, character in enumerate(geometry):
+        if index > 0 and character in {"+", "-"}:
+            origin = geometry[index:]
+            break
+    else:
+        return None
+
+    values: list[int] = []
+    start = 0
+    for index, character in enumerate(origin):
+        if index > 0 and character in {"+", "-"}:
+            values.append(int(origin[start:index]))
+            start = index
+    values.append(int(origin[start:]))
+    return (values[0], values[1])
