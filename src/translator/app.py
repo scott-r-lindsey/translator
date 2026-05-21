@@ -2,7 +2,7 @@ from collections.abc import Callable
 from queue import SimpleQueue
 from threading import Thread
 from time import monotonic
-from tkinter import BOTH, LEFT, RIGHT, Tk, X
+from tkinter import BOTH, LEFT, RIGHT, Button, Tk, X
 from tkinter.ttk import Frame, Label, Style
 from typing import Any
 
@@ -36,8 +36,11 @@ class SubtitleWindow:
         self._listen_control: ListenControl | None = None
         self._mode_toggle: ModeToggle | None = None
         self._transcript_view: TranscriptView | None = None
+        self._clear_transcript_button: Any | None = None
         self._live_frame: Any | None = None
         self._content_frame: Any | None = None
+        self._current_mode = "live"
+        self._has_transcript_entries = False
         self._last_caption_at: float | None = None
         self._clock: Callable[[], float] = monotonic
         self._root_factory: Callable[[], Any] = Tk
@@ -108,6 +111,26 @@ class SubtitleWindow:
         mode_toggle = ModeToggle(header, self._set_mode)
         mode_toggle.pack(side=LEFT, padx=(0, 12), pady=10)
         self._mode_toggle = mode_toggle
+
+        clear_transcript_button = Button(
+            header,
+            text="Clear",
+            command=self._clear_transcript,
+            state="disabled",
+            bg="#1c1c1c",
+            fg="#a1a1aa",
+            activebackground="#27272a",
+            activeforeground="#f5f5f5",
+            disabledforeground="#52525b",
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            padx=8,
+            pady=3,
+            font=("Inter", 10),
+            cursor="hand2",
+        )
+        self._clear_transcript_button = clear_transcript_button
 
         status_label = Label(
             header,
@@ -244,10 +267,14 @@ class SubtitleWindow:
         if mode == "transcript":
             self._live_frame.pack_forget()
             self._transcript_view.pack(fill=BOTH, expand=True)
+            self._current_mode = mode
+            self._update_clear_transcript_button()
             return
 
         self._transcript_view.pack_forget()
         self._live_frame.pack(fill=BOTH, expand=True)
+        self._current_mode = "live"
+        self._update_clear_transcript_button()
 
     def _append_transcript_entry(self, event: DisplayEvent) -> None:
         if self._transcript_view is None:
@@ -261,6 +288,28 @@ class SubtitleWindow:
                 detected_language=event.detected_language,
             )
         )
+        self._has_transcript_entries = True
+        self._update_clear_transcript_button()
+
+    def _clear_transcript(self) -> None:
+        if self._transcript_view is None:
+            return
+
+        self._transcript_view.clear()
+        self._has_transcript_entries = False
+        self._update_clear_transcript_button()
+
+    def _update_clear_transcript_button(self) -> None:
+        if self._clear_transcript_button is None:
+            return
+
+        if self._current_mode != "transcript":
+            self._clear_transcript_button.pack_forget()
+            return
+
+        self._clear_transcript_button.pack(side=LEFT, padx=(0, 12), pady=10)
+        state = "normal" if self._has_transcript_entries else "disabled"
+        self._clear_transcript_button.configure(state=state)
 
     def _prepare_audio_monitor(self) -> None:
         try:

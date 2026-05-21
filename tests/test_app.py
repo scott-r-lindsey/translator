@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import cast
 
 from pytest import MonkeyPatch
 
@@ -84,6 +85,9 @@ def test_subtitle_window_applies_basic_root_settings(monkeypatch: MonkeyPatch) -
     assert widgets.source_label.initial_text == ""
     assert widgets.translation_label.initial_text == ""
     assert widgets.listen_control.enabled_values == []
+    assert widgets.clear_button.kwargs["bg"] == "#1c1c1c"
+    assert widgets.clear_button.kwargs["fg"] == "#a1a1aa"
+    assert widgets.clear_button.kwargs["relief"] == "flat"
 
 
 def test_subtitle_window_updates_hybrid_caption(monkeypatch: MonkeyPatch) -> None:
@@ -121,11 +125,37 @@ def test_subtitle_window_toggles_between_live_and_transcript(monkeypatch: Monkey
 
     assert widgets.live_frame.forgotten is True
     assert widgets.transcript_view.packed is True
+    assert widgets.clear_button.forgotten is False
+    assert widgets.clear_button.configured_state == "disabled"
 
     widgets.mode_toggle.select("live")
 
     assert widgets.transcript_view.forgotten is True
     assert widgets.live_frame.pack_calls[-1]["fill"] == "both"
+    assert widgets.clear_button.forgotten is True
+
+
+def test_clear_transcript_button_clears_transcript(monkeypatch: MonkeyPatch) -> None:
+    root = FakeRoot()
+    monitor = FakeAudioMonitor()
+    widgets = FakeWidgetFactory()
+    window = SubtitleWindow(AppSettings(), monitor)
+
+    patch_widgets(monkeypatch, window, root, widgets)
+
+    window.run()
+    widgets.mode_toggle.select("transcript")
+    run_first_after(root)
+    monitor.emit(caption_event("hola", "hello", "es"))
+    run_first_after(root)
+
+    assert widgets.clear_button.configured_state == "normal"
+    assert len(widgets.transcript_view.entries) == 1
+
+    widgets.clear_button.invoke()
+
+    assert widgets.transcript_view.entries == []
+    assert widgets.clear_button.configured_state == "disabled"
 
 
 def test_subtitle_window_clears_stale_caption(monkeypatch: MonkeyPatch) -> None:
@@ -304,6 +334,8 @@ class FakeWidget:
         self.forgotten = False
         self.pack_calls: list[dict[str, object]] = []
         self.bindings: dict[str, Callable[[object], None]] = {}
+        self.configured_state = ""
+        self.kwargs: dict[str, object] = {}
 
     def pack(self, *_args: object, **_kwargs: object) -> None:
         self.pack_calls.append(dict(_kwargs))
@@ -312,8 +344,11 @@ class FakeWidget:
     def pack_forget(self) -> None:
         self.forgotten = True
 
-    def configure(self, *, text: str) -> None:
-        self.configured_text = text
+    def configure(self, *, text: str | None = None, state: str | None = None) -> None:
+        if text is not None:
+            self.configured_text = text
+        if state is not None:
+            self.configured_state = state
 
     def invoke(self) -> None:
         if self.command is not None:
@@ -333,6 +368,7 @@ class FakeWidgetFactory:
         self.listen_control = FakeListenControl()
         self.mode_toggle = FakeModeToggle()
         self.transcript_view = FakeTranscriptView()
+        self.clear_button = FakeWidget()
         self.frames: list[FakeWidget] = []
 
     @property
@@ -355,6 +391,19 @@ class FakeWidgetFactory:
         widget = FakeWidget(text=text)
         self.labels.append(widget)
         return widget
+
+    def build_button(self, *_args: object, **_kwargs: object) -> FakeWidget:
+        command = _kwargs.get("command")
+        if command is not None and not callable(command):
+            raise AssertionError("Button command must be callable")
+
+        typed_command = cast(Callable[[], None] | None, command)
+        self.clear_button = FakeWidget(command=typed_command)
+        self.clear_button.kwargs = dict(_kwargs)
+        state = _kwargs.get("state")
+        if isinstance(state, str):
+            self.clear_button.configured_state = state
+        return self.clear_button
 
     def build_listen_control(
         self,
@@ -418,6 +467,7 @@ def patch_widgets(
     widgets: FakeWidgetFactory | None = None,
 ) -> FakeWidgetFactory:
     widget_factory = widgets or FakeWidgetFactory()
+    monkeypatch.setattr("translator.app.Button", widget_factory.build_button)
     monkeypatch.setattr("translator.app.Frame", widget_factory.build_frame)
     monkeypatch.setattr("translator.app.Label", widget_factory.build_label)
     monkeypatch.setattr("translator.app.ListenControl", widget_factory.build_listen_control)
@@ -462,6 +512,9 @@ class FakeTranscriptView:
 
     def append(self, entry: TranscriptEntry) -> None:
         self.entries.append(entry)
+
+    def clear(self) -> None:
+        self.entries.clear()
 
 
 class FakeLanguageSelector:
